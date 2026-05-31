@@ -6,13 +6,20 @@ Esegui (dalla cartella engine, con ambiente attivo):
 """
 
 import os
-from parser import estrai_dati_partita, estrai_mosse
+import json
+from parser import (
+    estrai_dati_partita,
+    estrai_mosse,
+    estrai_tutte_le_partite,
+    salva_mosse_json,
+)
 
 CARTELLA_TEST = os.path.dirname(__file__)
 PARTITA = os.path.join(CARTELLA_TEST, "partita_esempio.pgn")
+MULTIPLE = os.path.join(CARTELLA_TEST, "partite_multiple.pgn")
 
 
-# --- Test sui metadati ---
+# --- Metadati (prima partita) ---
 
 def test_estrae_i_giocatori_giusti():
     dati = estrai_dati_partita(PARTITA)
@@ -30,17 +37,15 @@ def test_conta_le_mosse():
     assert dati["numero_mosse"] > 0
 
 
-# --- Test sull'estrazione delle mosse ---
+# --- Estrazione mosse (prima partita) ---
 
 def test_estrae_una_lista_di_mosse():
-    """La funzione deve restituire una lista non vuota."""
     mosse = estrai_mosse(PARTITA)
     assert isinstance(mosse, list)
     assert len(mosse) > 0
 
 
 def test_ogni_mossa_rispetta_il_contratto():
-    """Ogni mossa deve avere i tre campi del contratto Mossa."""
     mosse = estrai_mosse(PARTITA)
     for m in mosse:
         assert "uci" in m
@@ -49,17 +54,50 @@ def test_ogni_mossa_rispetta_il_contratto():
 
 
 def test_la_prima_mossa_e_corretta():
-    """
-    Nella partita di esempio la prima mossa del Bianco e' Nf3.
-    In notazione UCI e' g1f3 (cavallo da g1 a f3).
-    """
     mosse = estrai_mosse(PARTITA)
     assert mosse[0]["san"] == "Nf3"
     assert mosse[0]["uci"] == "g1f3"
 
 
 def test_il_numero_di_mosse_coincide():
-    """estrai_mosse e estrai_dati_partita devono contare lo stesso numero."""
     dati = estrai_dati_partita(PARTITA)
     mosse = estrai_mosse(PARTITA)
     assert len(mosse) == dati["numero_mosse"]
+
+
+# --- Salvataggio JSON ---
+
+def test_salva_e_rilegge_json():
+    mosse = estrai_mosse(PARTITA)
+    percorso = salva_mosse_json(mosse, "test_temporaneo_mosse.json")
+    assert os.path.exists(percorso)
+    with open(percorso, "r", encoding="utf-8") as f:
+        riletto = json.load(f)
+    assert riletto == mosse
+    os.remove(percorso)
+
+
+# --- Lettura di piu' partite ---
+
+def test_legge_tutte_le_partite():
+    """Il file di prova contiene 3 partite: devono essere lette tutte e 3."""
+    partite = estrai_tutte_le_partite(MULTIPLE)
+    assert len(partite) == 3
+
+
+def test_ogni_partita_ha_metadati_e_mosse():
+    """Ogni partita letta deve avere i metadati e la lista delle mosse."""
+    partite = estrai_tutte_le_partite(MULTIPLE)
+    for p in partite:
+        assert "bianco" in p
+        assert "nero" in p
+        assert "risultato" in p
+        assert "mosse" in p
+        assert len(p["mosse"]) > 0
+
+
+def test_file_con_una_sola_partita():
+    """estrai_tutte_le_partite deve funzionare anche con un file da 1 partita."""
+    partite = estrai_tutte_le_partite(PARTITA)
+    assert len(partite) == 1
+    assert partite[0]["bianco"] == "Donald Byrne"
