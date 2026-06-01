@@ -1,0 +1,37 @@
+# Configurazione della CI (Continuous Integration) per chess-ai.
+# GitHub esegue questo file automaticamente a ogni push sul ramo main.
+
+name: Test                      # nome che vedrai su GitHub
+
+on:                             # QUANDO eseguire
+  push:
+    branches: [ main ]          # a ogni push sul ramo main
+  pull_request:
+    branches: [ main ]          # e anche sulle pull request verso main
+
+jobs:                           # COSA eseguire
+  test:
+    runs-on: ubuntu-latest      # GitHub usa un computer Linux pulito
+
+    steps:
+      # 1. Scarica il tuo codice sul computer della CI
+      - name: Scarica il codice
+        uses: actions/checkout@v4
+
+      # 2. Installa Python 3.12
+      - name: Prepara Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3. Installa le dipendenze del progetto dalla lista
+      - name: Installa le dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. Lancia i test dalla cartella engine
+      - name: Esegui i test
+        run: |
+          cd engine
+          pytest
