@@ -13,3 +13,5 @@ data/
 .vscode/
 .idea/
 engine/bin/ 
+!engine/partita_esempio.pgn 
+!engine/partite_multiple.pgn 

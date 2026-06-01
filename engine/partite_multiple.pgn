@@ -1,0 +1,20 @@
+[Event "Esempio 1"]
+[White "Anderssen"]
+[Black "Kieseritzky"]
+[Result "1-0"]
+
+1. e4 e5 2. f4 exf4 3. Bc4 Qh4+ 4. Kf1 b5 5. Bxb5 Nf6 1-0
+
+[Event "Esempio 2"]
+[White "Morphy"]
+[Black "Allies"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 d6 3. d4 Bg4 4. dxe5 Bxf3 5. Qxf3 dxe5 1-0
+
+[Event "Esempio 3"]
+[White "Capablanca"]
+[Black "Marshall"]
+[Result "0-1"]
+
+1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. Bg5 Be7 5. e3 O-O 0-1
