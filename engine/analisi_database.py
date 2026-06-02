@@ -134,10 +134,16 @@ def analizza_database(percorso_pgn, profondita=PROFONDITA, percorso=PERCORSO_STO
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Uso: python analisi_database.py <file.pgn>")
+        print("Uso: python analisi_database.py <file.pgn> [profondita]")
+        print("  profondita opzionale (default %d). Es: python analisi_database.py file.pgn 12" % PROFONDITA)
         sys.exit(1)
 
-    n = analizza_database(sys.argv[1])
+    file_pgn = sys.argv[1]
+    # Profondita' opzionale come secondo argomento; se assente usa il default.
+    prof = int(sys.argv[2]) if len(sys.argv) >= 3 else PROFONDITA
+
+    print(f"Analizzo {file_pgn} a profondita {prof}...")
+    n = analizza_database(file_pgn, profondita=prof)
     if n is None:
         print("\nAnalisi non riuscita (Stockfish presente?).")
         sys.exit(1)
