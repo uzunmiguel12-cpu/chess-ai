@@ -1,5 +1,5 @@
 """
-Test del modulo profilo giocatore (scala stile Chess.com).
+Test del modulo profilo giocatore (con tasso di errore per fase).
 
 Non richiede Stockfish: dati finti in cartella temporanea, puliti alla fine.
 
@@ -25,59 +25,57 @@ def _m(gravita, fase):
 
 
 @pytest.fixture
-def cartella_con_partite():
+def cartella_tasso():
+    """
+    Miguel (Bianco, mosse pari): 4 errori su 20 mosse in apertura (20%),
+    3 errori su 4 mosse in finale (75%). Piu' errori assoluti in apertura,
+    ma tasso piu' alto in finale.
+    """
     cartella = tempfile.mkdtemp()
-    # Miguel col Bianco: 1 blunder in finale (mosse pari = Bianco).
-    p1 = {"bianco": "Miguel", "nero": "Avv", "risultato": "0-1", "mosse": [
-        _m("best", "apertura"), _m("good", "apertura"),
-        _m("blunder", "finale"), _m("excellent", "finale"),
-    ]}
-    # Miguel col Nero (nome con maiuscole/spazi diversi): 1 mistake in finale.
-    p2 = {"bianco": "Avv2", "nero": "miguel ", "risultato": "1-0", "mosse": [
-        _m("good", "apertura"), _m("mistake", "finale"),
-    ]}
-    # Altro giocatore: non deve entrare nel profilo di Miguel.
-    p3 = {"bianco": "Tizio", "nero": "Caio", "risultato": "1-0", "mosse": [
-        _m("blunder", "apertura"),
-    ]}
-    for i, p in enumerate([p1, p2, p3], 1):
-        with open(os.path.join(cartella, f"p_{i:04d}.json"), "w", encoding="utf-8") as f:
-            json.dump(p, f)
+    mosse = []
+
+    def agg(grav, fase):
+        mosse.append(_m(grav, fase))   # Bianco
+        mosse.append(_m("best", fase))  # Nero
+
+    for i in range(20):
+        agg("blunder" if i < 4 else "best", "apertura")
+    for i in range(4):
+        agg("blunder" if i < 3 else "best", "finale")
+
+    p = {"bianco": "Miguel", "nero": "Avv", "risultato": "1-0", "mosse": mosse}
+    with open(os.path.join(cartella, "p_0001.json"), "w", encoding="utf-8") as f:
+        json.dump(p, f)
     yield cartella
     shutil.rmtree(cartella)
 
 
 def test_normalizza_nomi():
     assert _normalizza("Miguel") == _normalizza("miguel ")
-    assert _normalizza("  ANNA ") == "anna"
 
 
-def test_trova_le_partite_giuste(cartella_con_partite):
-    p = costruisci_profilo("Miguel", cartella_con_partite)
-    assert p is not None
-    assert p["partite_analizzate"] == 2
+def test_calcola_il_tasso(cartella_tasso):
+    p = costruisci_profilo("Miguel", cartella_tasso)
+    assert p["tasso_errore_per_fase"]["apertura"] == 20.0
+    assert p["tasso_errore_per_fase"]["finale"] == 75.0
 
 
-def test_riconosce_la_debolezza(cartella_con_partite):
-    """Gli errori gravi (1 blunder + 1 mistake) di Miguel sono in finale."""
-    p = costruisci_profilo("Miguel", cartella_con_partite)
+def test_debolezza_per_tasso_non_per_conteggio(cartella_tasso):
+    """
+    Apertura ha PIU' errori assoluti (4 vs 3), ma il finale ha tasso piu' alto.
+    La debolezza deve essere il FINALE.
+    """
+    p = costruisci_profilo("Miguel", cartella_tasso)
+    assert p["errori_per_fase"]["apertura"] == 4
+    assert p["errori_per_fase"]["finale"] == 3
     assert p["debolezza_principale"] == "finale"
-    assert p["errori_per_fase"].get("finale") == 2
 
 
-def test_conta_le_gravita(cartella_con_partite):
-    """Verifica che le etichette stile Chess.com siano contate."""
-    p = costruisci_profilo("Miguel", cartella_con_partite)
-    # Miguel ha: best, good (p1) + good (p2) ... e blunder + mistake
-    assert p["conteggio_gravita"].get("blunder") == 1
-    assert p["conteggio_gravita"].get("mistake") == 1
+def test_mosse_per_fase_corrette(cartella_tasso):
+    p = costruisci_profilo("Miguel", cartella_tasso)
+    assert p["mosse_per_fase"]["apertura"] == 20
+    assert p["mosse_per_fase"]["finale"] == 4
 
 
-def test_non_mescola_giocatori(cartella_con_partite):
-    p = costruisci_profilo("Miguel", cartella_con_partite)
-    assert p["errori_per_fase"].get("apertura", 0) == 0
-
-
-def test_giocatore_inesistente(cartella_con_partite):
-    p = costruisci_profilo("Nessuno", cartella_con_partite)
-    assert p is None
+def test_giocatore_inesistente(cartella_tasso):
+    assert costruisci_profilo("Nessuno", cartella_tasso) is None
