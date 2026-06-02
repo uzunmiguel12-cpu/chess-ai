@@ -1,8 +1,7 @@
 """
-Test del modulo profilo giocatore.
+Test del modulo profilo giocatore (scala stile Chess.com).
 
-Non richiede Stockfish: lavora su dati arricchiti finti, creati in una cartella
-temporanea e puliti alla fine.
+Non richiede Stockfish: dati finti in cartella temporanea, puliti alla fine.
 
 Esegui (dalla cartella ml, con ambiente attivo):
     pytest
@@ -27,16 +26,15 @@ def _m(gravita, fase):
 
 @pytest.fixture
 def cartella_con_partite():
-    """Crea una cartella temporanea con partite finte e la pulisce dopo."""
     cartella = tempfile.mkdtemp()
     # Miguel col Bianco: 1 blunder in finale (mosse pari = Bianco).
     p1 = {"bianco": "Miguel", "nero": "Avv", "risultato": "0-1", "mosse": [
-        _m("ok", "apertura"), _m("ok", "apertura"),
-        _m("blunder", "finale"), _m("ok", "finale"),
+        _m("best", "apertura"), _m("good", "apertura"),
+        _m("blunder", "finale"), _m("excellent", "finale"),
     ]}
-    # Miguel col Nero (nome con maiuscole/spazi diversi): 1 errore in finale.
+    # Miguel col Nero (nome con maiuscole/spazi diversi): 1 mistake in finale.
     p2 = {"bianco": "Avv2", "nero": "miguel ", "risultato": "1-0", "mosse": [
-        _m("ok", "apertura"), _m("errore", "finale"),
+        _m("good", "apertura"), _m("mistake", "finale"),
     ]}
     # Altro giocatore: non deve entrare nel profilo di Miguel.
     p3 = {"bianco": "Tizio", "nero": "Caio", "risultato": "1-0", "mosse": [
@@ -55,26 +53,31 @@ def test_normalizza_nomi():
 
 
 def test_trova_le_partite_giuste(cartella_con_partite):
-    """Miguel ha giocato 2 partite delle 3 presenti."""
     p = costruisci_profilo("Miguel", cartella_con_partite)
     assert p is not None
     assert p["partite_analizzate"] == 2
 
 
 def test_riconosce_la_debolezza(cartella_con_partite):
-    """Tutti gli errori gravi di Miguel sono in finale."""
+    """Gli errori gravi (1 blunder + 1 mistake) di Miguel sono in finale."""
     p = costruisci_profilo("Miguel", cartella_con_partite)
     assert p["debolezza_principale"] == "finale"
     assert p["errori_per_fase"].get("finale") == 2
 
 
+def test_conta_le_gravita(cartella_con_partite):
+    """Verifica che le etichette stile Chess.com siano contate."""
+    p = costruisci_profilo("Miguel", cartella_con_partite)
+    # Miguel ha: best, good (p1) + good (p2) ... e blunder + mistake
+    assert p["conteggio_gravita"].get("blunder") == 1
+    assert p["conteggio_gravita"].get("mistake") == 1
+
+
 def test_non_mescola_giocatori(cartella_con_partite):
-    """Il blunder di Tizio (in apertura) non deve entrare nel profilo di Miguel."""
     p = costruisci_profilo("Miguel", cartella_con_partite)
     assert p["errori_per_fase"].get("apertura", 0) == 0
 
 
 def test_giocatore_inesistente(cartella_con_partite):
-    """Un nome che non ha giocato restituisce None."""
     p = costruisci_profilo("Nessuno", cartella_con_partite)
     assert p is None

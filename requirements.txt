@@ -1,7 +1,14 @@
+certifi==2026.5.20
+charset-normalizer==3.4.7
 chess==1.11.2
 colorama==0.4.6
+idna==3.18
 iniconfig==2.3.0
 packaging==26.2
+pgn-downloader==0.2.2
 pluggy==1.6.0
 Pygments==2.20.0
 pytest==9.0.3
+requests==2.34.2
+tqdm==4.67.3
+urllib3==2.7.0

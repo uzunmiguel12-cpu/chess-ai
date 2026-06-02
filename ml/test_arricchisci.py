@@ -1,8 +1,7 @@
 """
 Test del modulo arricchisci (collegamento categorie <- analisi).
 
-Non richiede Stockfish: lavora su dati gia' prodotti. Crea file temporanei
-in cartelle di prova e li pulisce alla fine.
+Non richiede Stockfish. Usa file temporanei.
 
 Esegui (dalla cartella ml, con ambiente attivo):
     pytest
@@ -30,7 +29,6 @@ def _partita_finta():
 
 
 def test_arricchisce_le_mosse():
-    """Ogni mossa arricchita deve avere gravita, fase e tipo_tattico."""
     risultato = arricchisci_partita(_partita_finta())
     for m in risultato["mosse"]:
         assert "gravita" in m
@@ -39,7 +37,6 @@ def test_arricchisce_le_mosse():
 
 
 def test_mantiene_i_metadati():
-    """I metadati della partita (giocatori, risultato) devono restare."""
     risultato = arricchisci_partita(_partita_finta())
     assert risultato["bianco"] == "Tizio"
     assert risultato["nero"] == "Caio"
@@ -47,28 +44,20 @@ def test_mantiene_i_metadati():
 
 
 def test_gravita_corretta_per_mossa():
-    """La seconda mossa (loss 350) deve essere un blunder."""
+    """Scala stile Chess.com: loss 10 = excellent, loss 350 = blunder."""
     risultato = arricchisci_partita(_partita_finta())
-    assert risultato["mosse"][0]["gravita"] == "ok"
+    assert risultato["mosse"][0]["gravita"] == "excellent"
     assert risultato["mosse"][1]["gravita"] == "blunder"
 
 
 def test_arricchisci_tutte_su_cartelle_temporanee():
-    """
-    Prova il flusso completo su cartelle temporanee: crea un file di analisi
-    finto, lo arricchisce, verifica che il file di output esista e sia valido.
-    """
     cartella_in = tempfile.mkdtemp()
     cartella_out = tempfile.mkdtemp()
     try:
-        # Creiamo un file di analisi finto in entrata.
         with open(os.path.join(cartella_in, "prova_0001.json"), "w", encoding="utf-8") as f:
             json.dump(_partita_finta(), f)
-
         n = arricchisci_tutte(cartella_in, cartella_out)
         assert n == 1
-
-        # Il file arricchito deve esistere ed essere valido.
         out = os.path.join(cartella_out, "prova_0001.json")
         assert os.path.exists(out)
         with open(out, "r", encoding="utf-8") as f:
