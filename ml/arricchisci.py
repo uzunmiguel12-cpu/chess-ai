@@ -1,12 +1,12 @@
 """
 Modulo arricchimento (Fase 3) - aggiunge le categorie alle partite analizzate.
 
-Legge i file di analisi grezza da data/analisi/ (prodotti dal motore in Fase 2),
-passa ogni mossa attraverso categorizza_mossa (gravita + fase), e salva il
-risultato arricchito in data/categorie/.
+Legge i file di analisi grezza da data/analisi/, e per ogni mossa aggiunge:
+- gravita e fase  (da categorizza)
+- tipo_tattico    (da tattica: per ora "pezzo_in_presa", solo sugli errori veri)
 
-Tiene separati i due stadi: l'analisi grezza (costosa, richiede Stockfish) e
-le categorie (rigenerabili in un attimo se cambiano le soglie).
+Salva i risultati in data/categorie/. Tiene separati i due stadi: l'analisi
+grezza (costosa, Stockfish) e le categorie (rigenerabili in fretta).
 
 Uso:  python arricchisci.py
 """
@@ -15,8 +15,10 @@ import os
 import json
 import glob
 import logging
+import chess
 
 from categorizza import categorizza_mossa
+from tattica import rileva_tipo_tattico
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,7 +27,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ml")
 
-# Cartelle: l'analisi grezza in entrata, le categorie in uscita.
 CARTELLA_ANALISI = os.path.join(
     os.path.dirname(__file__), "..", "data", "analisi"
 )
@@ -33,29 +34,53 @@ CARTELLA_CATEGORIE = os.path.join(
     os.path.dirname(__file__), "..", "data", "categorie"
 )
 
+# Cerchiamo il tipo tattico solo sugli errori veri (risparmio di lavoro).
+GRAVITA_DA_ANALIZZARE = {"mistake", "blunder"}
+
+
+def _aggiungi_tipo_tattico(mossa):
+    """
+    Se la mossa e' un errore vero, controlla se ha lasciato un pezzo in presa.
+    Ricostruisce la posizione DOPO la mossa partendo da fen (prima) + move_uci,
+    e guarda se chi ha mosso ha un pezzo catturabile.
+    Modifica e restituisce la mossa.
+    """
+    if mossa.get("gravita") not in GRAVITA_DA_ANALIZZARE:
+        mossa["tipo_tattico"] = None
+        return mossa
+
+    try:
+        board = chess.Board(mossa["fen"])
+        colore_che_muove = board.turn  # chi sta per muovere = chi fa la mossa
+        board.push(chess.Move.from_uci(mossa["move_uci"]))
+        fen_dopo = board.fen()
+        mossa["tipo_tattico"] = rileva_tipo_tattico(fen_dopo, colore_che_muove)
+    except Exception as e:
+        logger.warning("Tipo tattico non calcolabile per una mossa: %s", e)
+        mossa["tipo_tattico"] = None
+    return mossa
+
 
 def arricchisci_partita(dato_partita):
     """
-    Dato il contenuto di una partita analizzata (dizionario con 'mosse'),
-    RESTITUISCE lo stesso dato con ogni mossa arricchita di gravita/fase.
+    Arricchisce ogni mossa con gravita, fase (da categorizza) e poi tipo_tattico.
     Mantiene i metadati (bianco, nero, risultato).
     """
-    arricchito = dict(dato_partita)  # copia dei metadati
-    arricchito["mosse"] = [categorizza_mossa(m) for m in dato_partita["mosse"]]
+    arricchito = dict(dato_partita)
+    mosse_arricchite = []
+    for m in dato_partita["mosse"]:
+        m_cat = categorizza_mossa(m)        # gravita + fase (+ tipo_tattico=None)
+        m_cat = _aggiungi_tipo_tattico(m_cat)  # eventualmente "pezzo_in_presa"
+        mosse_arricchite.append(m_cat)
+    arricchito["mosse"] = mosse_arricchite
     return arricchito
 
 
 def arricchisci_tutte(cartella_in=CARTELLA_ANALISI, cartella_out=CARTELLA_CATEGORIE):
-    """
-    Legge tutti i file di analisi in data/analisi/, li arricchisce con le
-    categorie, e salva i risultati in data/categorie/ con lo stesso nome.
-
-    RESTITUISCE il numero di file arricchiti.
-    """
+    """Legge data/analisi/, arricchisce, salva in data/categorie/. Conta i file."""
     if not os.path.isdir(cartella_in):
         logger.error("Cartella analisi non trovata: %s", cartella_in)
         return 0
-
     os.makedirs(cartella_out, exist_ok=True)
 
     file_analisi = sorted(glob.glob(os.path.join(cartella_in, "*.json")))
@@ -66,14 +91,9 @@ def arricchisci_tutte(cartella_in=CARTELLA_ANALISI, cartella_out=CARTELLA_CATEGO
         nome = os.path.basename(percorso_in)
         with open(percorso_in, "r", encoding="utf-8") as f:
             dato = json.load(f)
-
         dato_arricchito = arricchisci_partita(dato)
-
-        percorso_out = os.path.join(cartella_out, nome)
-        with open(percorso_out, "w", encoding="utf-8") as f:
+        with open(os.path.join(cartella_out, nome), "w", encoding="utf-8") as f:
             json.dump(dato_arricchito, f, indent=2, ensure_ascii=False)
-
-        logger.info("Arricchito: %s", nome)
         arricchiti += 1
 
     logger.info("Fatto. File arricchiti: %d", arricchiti)
