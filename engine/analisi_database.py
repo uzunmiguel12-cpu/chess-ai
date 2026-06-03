@@ -35,13 +35,28 @@ CARTELLA_ANALISI = os.path.join(
 )
 
 
+def _valuta_completa(board, motore, profondita):
+    """Analizza la posizione UNA volta e restituisce (eval_centipawn_bianco,
+    mossa_migliore_uci). Cosi' non analizziamo due volte la stessa posizione."""
+    risultato = motore.analyse(board, chess.engine.Limit(depth=profondita))
+    punteggio = risultato["score"].white()
+    if punteggio.is_mate():
+        val = 100000 if punteggio.mate() > 0 else -100000
+    else:
+        val = punteggio.score()
+    pv = risultato.get("pv")
+    best = pv[0].uci() if pv else None
+    return val, best
+
+
 def _analizza_una(partita, motore, profondita):
     """
     Analizza una singola partita gia' letta e restituisce la lista delle
     mosse con il centipawn loss (stessa logica di analisi_partita).
     """
     board = partita.board()
-    eval_corrente = _valuta(board, motore, profondita)
+    # Analizziamo la posizione iniziale: punteggio + mossa migliore.
+    eval_corrente, best_corrente = _valuta_completa(board, motore, profondita)
 
     risultati = []
     for mossa in partita.mainline_moves():
@@ -51,8 +66,12 @@ def _analizza_una(partita, motore, profondita):
         turno_bianco = board.turn == chess.WHITE
 
         eval_prima = eval_corrente
+        best_move = best_corrente  # mossa migliore in questa posizione (riuso!)
+
         board.push(mossa)
-        eval_dopo = _valuta(board, motore, profondita)
+        # Una sola analyse per posizione: serve sia ora (eval_dopo) sia come
+        # eval_prima/best della mossa successiva.
+        eval_dopo, best_dopo = _valuta_completa(board, motore, profondita)
 
         loss = (eval_prima - eval_dopo) if turno_bianco else (eval_dopo - eval_prima)
         loss = max(0, loss)
@@ -61,11 +80,13 @@ def _analizza_una(partita, motore, profondita):
             "fen": fen_prima,
             "move_uci": uci,
             "san": san,
+            "best_move_uci": best_move,
             "eval_prima": eval_prima,
             "eval_dopo": eval_dopo,
             "centipawn_loss": loss,
         })
         eval_corrente = eval_dopo
+        best_corrente = best_dopo
 
     return risultati
 
