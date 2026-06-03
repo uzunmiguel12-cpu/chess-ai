@@ -29,6 +29,8 @@ VALORE_PEZZO = {
     chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 100000,
 }
 PEZZI_BERSAGLIO = {chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING}
+# Pezzi che attaccano "in linea" e possono quindi infilzare.
+PEZZI_LINEA = {chess.BISHOP, chess.ROOK, chess.QUEEN}
 
 
 def _guadagno_cattura(board, casa, colore):
@@ -60,6 +62,8 @@ def trova_pezzo_in_presa(board, colore_vittima):
         pezzo = board.piece_at(casa)
         if pezzo is None or pezzo.color != colore_vittima:
             continue
+        if pezzo.piece_type == chess.KING:
+            continue  # il re non e' un pezzo "in presa": lo scacco e' altra cosa
         if not board.attackers(avversario, casa):
             continue
         if _guadagno_cattura(board, casa, avversario) > 0:
@@ -114,6 +118,72 @@ def inchiodatura_creata(board_prima, board_dopo, colore_che_muove):
     return len(dopo - prima) > 0
 
 
+def _direzione(da_sq, a_sq):
+    """Passo unitario (df, dr) da da_sq verso a_sq se sono in linea retta, o None."""
+    df = chess.square_file(a_sq) - chess.square_file(da_sq)
+    dr = chess.square_rank(a_sq) - chess.square_rank(da_sq)
+    if df == 0 and dr == 0:
+        return None
+    if df == 0:
+        return (0, 1 if dr > 0 else -1)
+    if dr == 0:
+        return (1 if df > 0 else -1, 0)
+    if abs(df) == abs(dr):
+        return (1 if df > 0 else -1, 1 if dr > 0 else -1)
+    return None
+
+
+def _primo_pezzo_dietro(board, casa_attaccante, casa_davanti):
+    """Primo pezzo che sta DIETRO casa_davanti, proseguendo dalla linea
+    attaccante->davanti. Restituisce (casa, pezzo) o None."""
+    dirz = _direzione(casa_attaccante, casa_davanti)
+    if dirz is None:
+        return None
+    df, dr = dirz
+    f = chess.square_file(casa_davanti) + df
+    r = chess.square_rank(casa_davanti) + dr
+    while 0 <= f < 8 and 0 <= r < 8:
+        sq = chess.square(f, r)
+        p = board.piece_at(sq)
+        if p is not None:
+            return (sq, p)
+        f += df
+        r += dr
+    return None
+
+
+def trova_infilata(board, colore_vittima):
+    """
+    True se i pezzi del colore_vittima sono in un'infilata: un pezzo nemico in
+    linea attacca un pezzo di valore, e DIETRO (stessa linea) c'e' un altro
+    pezzo della vittima di valore minore o uguale.
+    """
+    avversario = not colore_vittima
+    for casa_att in chess.SQUARES:
+        attaccante = board.piece_at(casa_att)
+        if attaccante is None or attaccante.color != avversario:
+            continue
+        if attaccante.piece_type not in PEZZI_LINEA:
+            continue
+        for casa_davanti in board.attacks(casa_att):
+            davanti = board.piece_at(casa_davanti)
+            if davanti is None or davanti.color != colore_vittima:
+                continue
+            if davanti.piece_type == chess.PAWN:
+                continue
+            dietro = _primo_pezzo_dietro(board, casa_att, casa_davanti)
+            if dietro is None:
+                continue
+            casa_dietro, pezzo_dietro = dietro
+            if pezzo_dietro.color != colore_vittima:
+                continue
+            if pezzo_dietro.piece_type == chess.PAWN:
+                continue
+            if VALORE_PEZZO[davanti.piece_type] >= VALORE_PEZZO[pezzo_dietro.piece_type]:
+                return True
+    return False
+
+
 def rileva_tipo_tattico(fen_prima, fen_dopo, colore_che_ha_mosso):
     """
     Dato lo stato PRIMA e DOPO una mossa e il colore di chi l'ha giocata,
@@ -130,6 +200,8 @@ def rileva_tipo_tattico(fen_prima, fen_dopo, colore_che_ha_mosso):
         return "forchetta"
     if inchiodatura_creata(board_prima, board_dopo, colore_che_ha_mosso):
         return "inchiodatura"
+    if trova_infilata(board_dopo, colore_che_ha_mosso):
+        return "infilata"
     return None
 
 

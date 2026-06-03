@@ -13,6 +13,7 @@ from tattica import (
     trova_pezzo_in_presa,
     trova_forchetta,
     inchiodatura_creata,
+    trova_infilata,
     rileva_tipo_tattico,
 )
 
@@ -63,6 +64,24 @@ def test_inchiodatura_preesistente_non_conta():
     assert inchiodatura_creata(prima, dopo, chess.WHITE) is False
 
 
+# --- Infilata ---
+
+def test_infilata_su_diagonale():
+    """Alfiere a1 attacca donna d4, dietro torre g7: infilata."""
+    b = chess.Board("8/6R1/8/8/3Q4/8/8/b3K2k w - - 0 1")
+    assert trova_infilata(b, chess.WHITE) is True
+
+
+def test_inchiodatura_non_e_infilata():
+    """Cavallo (minore) davanti al re: e' inchiodatura, non infilata."""
+    b = chess.Board("4r3/8/8/8/8/8/4N3/4K3 w - - 0 1")
+    assert trova_infilata(b, chess.WHITE) is False
+
+
+def test_nessuna_infilata_iniziale():
+    assert trova_infilata(chess.Board(), chess.WHITE) is False
+
+
 # --- Etichette finali (firma con fen_prima, fen_dopo) ---
 
 def test_etichetta_pezzo_in_presa():
@@ -81,6 +100,14 @@ def test_etichetta_inchiodatura():
     fp = "4r3/8/8/8/8/8/8/4K1N1 w - - 0 1"
     fd = "4r3/8/8/8/8/8/4N3/4K3 b - - 0 1"
     assert rileva_tipo_tattico(fp, fd, chess.WHITE) == "inchiodatura"
+
+
+def test_etichetta_infilata():
+    # Infilata sul re: torre a1 da' scacco, dietro la donna g1 (stessa traversa).
+    # Il re non conta come "pezzo in presa", quindi l'etichetta e' infilata pulita.
+    fp = "8/8/8/8/8/8/8/4K3 w - - 0 1"
+    fd = "4k3/8/8/8/8/8/8/r3K1Q1 w - - 0 1"
+    assert rileva_tipo_tattico(fp, fd, chess.WHITE) == "infilata"
 
 
 def test_etichetta_niente():
