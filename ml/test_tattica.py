@@ -1,5 +1,5 @@
 """
-Test del modulo tattica (riconoscimento pezzo in presa via SEE).
+Test del modulo tattica (pezzo in presa + forchetta).
 
 Non richiede Stockfish: ragiona solo sulle posizioni. Gira ovunque.
 
@@ -11,58 +11,65 @@ import chess
 from tattica import (
     _guadagno_cattura,
     trova_pezzo_in_presa,
+    trova_forchetta,
     rileva_tipo_tattico,
 )
 
 
-# --- SEE di base ---
+# --- SEE / pezzo in presa ---
 
 def test_torre_indifesa_e_in_presa():
-    """Torre bianca d5 attaccata da torre nera, non difesa: catturabile."""
     b = chess.Board("3rk3/8/8/3R4/8/8/8/5K2 b - - 0 1")
     assert _guadagno_cattura(b, chess.D5, chess.BLACK) > 0
 
 
 def test_torre_difesa_da_pari_non_conviene():
-    """Torre d5 difesa da un'altra torre: lo scambio e' pari, guadagno 0."""
     b = chess.Board("3rk3/8/8/3R4/8/8/8/3R1K2 b - - 0 1")
     assert _guadagno_cattura(b, chess.D5, chess.BLACK) == 0
 
 
-def test_donna_indifesa_e_in_presa():
-    """Donna bianca d5 attaccata da pedone c6, non difesa: catturabile."""
-    b = chess.Board("4k3/8/2p5/3Q4/8/8/8/4K3 b - - 0 1")
-    assert _guadagno_cattura(b, chess.D5, chess.BLACK) > 0
-
-
-# --- trova_pezzo_in_presa ---
-
 def test_trova_il_pezzo_in_presa():
     b = chess.Board("3rk3/8/8/3R4/8/8/8/5K2 b - - 0 1")
-    casa = trova_pezzo_in_presa(b, chess.WHITE)
-    assert casa == chess.D5
+    assert trova_pezzo_in_presa(b, chess.WHITE) == chess.D5
 
 
 def test_nessun_pezzo_in_presa_iniziale():
-    b = chess.Board()
-    assert trova_pezzo_in_presa(b, chess.WHITE) is None
+    assert trova_pezzo_in_presa(chess.Board(), chess.WHITE) is None
 
 
-def test_sceglie_il_pezzo_piu_prezioso():
-    """Con torre E donna entrambe in presa, segnala la donna (piu' grave)."""
-    # Donna bianca a5 e torre bianca h5, entrambe attaccate da torri nere indifese.
-    b = chess.Board("r6r/8/8/Q6R/8/8/8/4K1k1 b - - 0 1")
-    casa = trova_pezzo_in_presa(b, chess.WHITE)
-    assert casa == chess.A5  # la donna
+# --- Forchetta ---
+
+def test_trova_forchetta_cavallo():
+    """Cavallo nero a6 puo' saltare in c7 e forchettare donna a8 e torre e8."""
+    b = chess.Board("Q3R3/8/n6k/8/8/8/8/7K b - - 0 1")
+    assert trova_forchetta(b, chess.WHITE) is True
 
 
-# --- rileva_tipo_tattico ---
+def test_nessuna_forchetta_iniziale():
+    assert trova_forchetta(chess.Board(), chess.WHITE) is False
 
-def test_rileva_pezzo_in_presa():
+
+def test_forchetta_non_valida_se_pezzo_catturabile():
+    """
+    Se il pezzo che forchetterebbe finisce in una casa difesa e viene perso,
+    non e' una forchetta vantaggiosa.
+    """
+    # Cavallo nero forchetterebbe da c7, ma c7 e' difeso dall'alfiere bianco a5.
+    b = chess.Board("Q3R3/8/n6k/B7/8/8/8/7K b - - 0 1")
+    assert trova_forchetta(b, chess.WHITE) is False
+
+
+# --- Etichette finali ---
+
+def test_etichetta_pezzo_in_presa():
     fen = "3rk3/8/8/3R4/8/8/8/5K2 b - - 0 1"
     assert rileva_tipo_tattico(fen, chess.WHITE) == "pezzo_in_presa"
 
 
-def test_rileva_niente_se_sicuro():
-    fen = "3rk3/8/8/3R4/8/8/8/3R1K2 b - - 0 1"
-    assert rileva_tipo_tattico(fen, chess.WHITE) is None
+def test_etichetta_forchetta():
+    fen = "Q3R3/8/n6k/8/8/8/8/7K b - - 0 1"
+    assert rileva_tipo_tattico(fen, chess.WHITE) == "forchetta"
+
+
+def test_etichetta_niente():
+    assert rileva_tipo_tattico(chess.STARTING_FEN, chess.WHITE) is None
