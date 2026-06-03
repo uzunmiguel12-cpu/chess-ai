@@ -108,3 +108,22 @@ def test_tattico_per_fase(cartella_tattica):
 
 def test_giocatore_inesistente(cartella_tattica):
     assert costruisci_profilo("Nessuno", cartella_tattica) is None
+
+
+def test_inchiodatura_conteggiata():
+    """L'inchiodatura deve avere la sua voce, non finire in non_tattico."""
+    import tempfile, shutil
+    cartella = tempfile.mkdtemp()
+    try:
+        mosse = [
+            _m("blunder", "mediogioco", "inchiodatura"),
+            _m("best", "mediogioco"),
+        ]
+        p = {"bianco": "Miguel", "nero": "Avv", "risultato": "1-0", "mosse": mosse}
+        with open(os.path.join(cartella, "p_0001.json"), "w", encoding="utf-8") as f:
+            json.dump(p, f)
+        prof = costruisci_profilo("Miguel", cartella)
+        assert prof["conteggio_tattico"].get("inchiodatura") == 1
+        assert prof["conteggio_tattico"].get("non_tattico", 0) == 0
+    finally:
+        shutil.rmtree(cartella)

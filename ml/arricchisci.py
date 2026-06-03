@@ -52,9 +52,10 @@ def _aggiungi_tipo_tattico(mossa):
     try:
         board = chess.Board(mossa["fen"])
         colore_che_muove = board.turn  # chi sta per muovere = chi fa la mossa
+        fen_prima = mossa["fen"]
         board.push(chess.Move.from_uci(mossa["move_uci"]))
         fen_dopo = board.fen()
-        mossa["tipo_tattico"] = rileva_tipo_tattico(fen_dopo, colore_che_muove)
+        mossa["tipo_tattico"] = rileva_tipo_tattico(fen_prima, fen_dopo, colore_che_muove)
     except Exception as e:
         logger.warning("Tipo tattico non calcolabile per una mossa: %s", e)
         mossa["tipo_tattico"] = None

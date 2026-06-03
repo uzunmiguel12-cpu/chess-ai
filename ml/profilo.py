@@ -34,7 +34,7 @@ CARTELLA_CATEGORIE = os.path.join(
 GRAVITA_ORDINE = ["best", "excellent", "good", "inaccuracy", "mistake", "blunder"]
 GRAVITA_ERRORE = {"mistake", "blunder"}
 FASI = ("apertura", "mediogioco", "finale")
-TIPI_TATTICI = ("pezzo_in_presa", "forchetta")
+TIPI_TATTICI = ("pezzo_in_presa", "forchetta", "inchiodatura")
 
 
 def _normalizza(nome):
