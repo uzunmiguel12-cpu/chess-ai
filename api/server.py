@@ -22,6 +22,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # Il piano vive in rag/, il profilo in ml/: aggiungiamo i percorsi per importarli.
 _QUI = os.path.dirname(os.path.abspath(__file__))
@@ -62,6 +63,11 @@ _sessione = {
     "piano": None,
     "coda": [],     # lista piatta di puzzle da servire, in ordine di piano
     "serviti": 0,
+    # Statistiche di sessione (si azzerano al riavvio del backend).
+    "tentati": 0,            # puzzle di cui e' arrivato un esito
+    "risolti_primo": 0,      # risolti al primo tentativo (= successo)
+    "risolti_secondo": 0,    # risolti al secondo tentativo
+    "falliti": 0,            # soluzione mostrata
 }
 
 
@@ -88,6 +94,46 @@ def _prepara_sessione():
     _sessione["serviti"] = 0
     logger.info("Sessione pronta: %d puzzle in coda per %s", len(coda), GIOCATORE)
     return True
+
+
+class Esito(BaseModel):
+    """Esito di un puzzle inviato dal frontend."""
+    puzzle_id: str
+    risultato: str  # "primo" | "secondo" | "fallito"
+
+
+@app.post("/esito")
+def registra_esito(esito: Esito):
+    """Riceve l'esito di un puzzle e aggiorna le statistiche di sessione."""
+    _sessione["tentati"] += 1
+    if esito.risultato == "primo":
+        _sessione["risolti_primo"] += 1
+    elif esito.risultato == "secondo":
+        _sessione["risolti_secondo"] += 1
+    else:
+        _sessione["falliti"] += 1
+
+    tentati = _sessione["tentati"]
+    successo = _sessione["risolti_primo"]
+    perc = round(100 * successo / tentati, 1) if tentati else 0.0
+    logger.info("Esito %s per %s. Successo al primo: %d/%d (%.1f%%)",
+                esito.risultato, esito.puzzle_id, successo, tentati, perc)
+    return statistiche()
+
+
+@app.get("/statistiche")
+def statistiche():
+    """Restituisce le statistiche di sessione correnti."""
+    tentati = _sessione["tentati"]
+    successo = _sessione["risolti_primo"]
+    perc_primo = round(100 * successo / tentati, 1) if tentati else 0.0
+    return {
+        "tentati": tentati,
+        "risolti_primo": _sessione["risolti_primo"],
+        "risolti_secondo": _sessione["risolti_secondo"],
+        "falliti": _sessione["falliti"],
+        "percentuale_primo": perc_primo,
+    }
 
 
 @app.get("/")

@@ -28,6 +28,7 @@ let chess = null;          // istanza chess.js con la posizione corrente
 let soluzione = [];        // mosse-soluzione rimaste da giocare (UCI)
 let board = null;          // istanza chessground
 let tentativi = 0;         // tentativi sbagliati sul puzzle corrente
+let esitoInviato = false;  // per non inviare due volte l'esito dello stesso puzzle
 let puzzleCorrente = null; // dati del puzzle dal server
 
 // Elementi della pagina.
@@ -35,6 +36,7 @@ const elBoard = document.getElementById('board');
 const elInfo = document.getElementById('info');
 const elStato = document.getElementById('stato');
 const elProssimo = document.getElementById('prossimo');
+const elStats = document.getElementById('stats');
 
 // Converte una stringa UCI ("e2e4") in {from, to, promotion}.
 function uciToMove(uci) {
@@ -69,6 +71,7 @@ function aggiornaBoard() {
 async function caricaProssimoPuzzle() {
   elInfo.textContent = 'Carico il prossimo puzzle...';
   tentativi = 0;
+  esitoInviato = false;
   try {
     const risposta = await fetch(`${BACKEND}/prossimo-puzzle`);
     const dati = await risposta.json();
@@ -114,6 +117,30 @@ async function caricaProssimoPuzzle() {
   }
 }
 
+
+// Invia l'esito del puzzle corrente al backend e aggiorna le statistiche a video.
+async function inviaEsito(risultato) {
+  try {
+    const risposta = await fetch(`${BACKEND}/esito`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ puzzle_id: puzzleCorrente.id, risultato }),
+    });
+    const stats = await risposta.json();
+    mostraStatistiche(stats);
+  } catch (err) {
+    console.error('Errore invio esito:', err);
+  }
+}
+
+// Mostra le statistiche di sessione nella pagina.
+function mostraStatistiche(stats) {
+  if (!elStats) return;
+  elStats.textContent =
+    `Sessione: ${stats.risolti_primo}/${stats.tentati} al primo colpo ` +
+    `(${stats.percentuale_primo}%) · ${stats.falliti} soluzioni viste`;
+}
+
 // Chiamata quando il giocatore trascina un pezzo.
 function onMossaGiocatore(orig, dest) {
   const mossaUci = orig + dest;
@@ -132,6 +159,11 @@ function onMossaGiocatore(orig, dest) {
       elInfo.textContent = '✅ Corretto! Puzzle risolto.';
       aggiornaBoard();
       board.set({ movable: { color: undefined } });
+      if (!esitoInviato) {
+        // 0 errori = "primo", 1 errore = "secondo"
+        inviaEsito(tentativi === 0 ? 'primo' : 'secondo');
+        esitoInviato = true;
+      }
       return;
     }
 
@@ -149,6 +181,10 @@ function onMossaGiocatore(orig, dest) {
       // Riporto la posizione com'era (annullo la mossa sbagliata visivamente).
       aggiornaBoard();
       board.set({ movable: { color: undefined } });
+      if (!esitoInviato) {
+        inviaEsito('fallito');
+        esitoInviato = true;
+      }
     } else {
       elInfo.textContent = `❌ Non è giusta. Riprova (tentativo ${tentativi}/${MAX_TENTATIVI}).`;
       // Rimetto la posizione corretta (la mossa sbagliata non viene applicata).

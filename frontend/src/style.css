@@ -23,3 +23,10 @@ button {
   color: white;
 }
 button:hover { background: #386; }
+#stats {
+  color: #4a7;
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0.5rem 0 1rem 0;
+  min-height: 1.2rem;
+}
