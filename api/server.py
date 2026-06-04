@@ -18,6 +18,7 @@ Poi nel browser: http://localhost:8000/prossimo-puzzle
 
 import os
 import sys
+import json
 import logging
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -44,6 +45,7 @@ logger = logging.getLogger("api")
 # --- Configurazione (per ora fissa; un domani vera gestione utenti) ---
 GIOCATORE = os.environ.get("CHESS_PLAYER", "MigueL_uz")
 PERCORSO_DB = os.path.join(_QUI, "..", "data", "puzzle.db")
+PERCORSO_STATO = os.path.join(_QUI, "..", "data", "stato_sessione.json")
 ELO_MIN = int(os.environ.get("CHESS_ELO_MIN", "1050"))
 ELO_MAX = int(os.environ.get("CHESS_ELO_MAX", "1250"))
 
@@ -99,13 +101,69 @@ _sessione = {
     "tema_libero": None,     # se impostato, allenamento focalizzato su un tema Lichess
 }
 
+def _salva_stato():
+    """
+    Salva lo stato persistente (fascia, visti, statistiche) su file JSON.
+    Scrittura sicura: scrive su file temporaneo e poi rinomina, cosi' non
+    resta mai un file a meta' se qualcosa si interrompe.
+    """
+    stato = {
+        "elo_min": _sessione["elo_min"],
+        "elo_max": _sessione["elo_max"],
+        "tentati": _sessione["tentati"],
+        "risolti_primo": _sessione["risolti_primo"],
+        "risolti_secondo": _sessione["risolti_secondo"],
+        "falliti": _sessione["falliti"],
+        "visti": list(_sessione["visti"]),  # set -> lista per il JSON
+        "storico_fasce": _sessione["storico_fasce"],
+    }
+    try:
+        tmp = PERCORSO_STATO + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(stato, f)
+        os.replace(tmp, PERCORSO_STATO)  # rinomina atomica
+    except OSError as e:
+        logger.warning("Impossibile salvare lo stato: %s", e)
+
+
+def _carica_stato():
+    """
+    Carica lo stato persistente all'avvio, se il file esiste.
+    RESTITUISCE True se ha caricato uno stato salvato, False altrimenti.
+    """
+    if not os.path.exists(PERCORSO_STATO):
+        return False
+    try:
+        with open(PERCORSO_STATO, "r", encoding="utf-8") as f:
+            stato = json.load(f)
+        _sessione["elo_min"] = stato.get("elo_min", ELO_MIN)
+        _sessione["elo_max"] = stato.get("elo_max", ELO_MAX)
+        _sessione["tentati"] = stato.get("tentati", 0)
+        _sessione["risolti_primo"] = stato.get("risolti_primo", 0)
+        _sessione["risolti_secondo"] = stato.get("risolti_secondo", 0)
+        _sessione["falliti"] = stato.get("falliti", 0)
+        _sessione["visti"] = set(stato.get("visti", []))  # lista -> set
+        _sessione["storico_fasce"] = stato.get("storico_fasce", [])
+        logger.info("Stato ripristinato: fascia %d-%d, %d puzzle visti, %d tentati",
+                    _sessione["elo_min"], _sessione["elo_max"],
+                    len(_sessione["visti"]), _sessione["tentati"])
+        return True
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Impossibile caricare lo stato (riparto pulito): %s", e)
+        return False
+
+
+
 
 def _prepara_sessione():
     """Costruisce il piano e appiattisce i puzzle in una coda ordinata."""
-    _sessione["elo_min"] = ELO_MIN
-    _sessione["elo_max"] = ELO_MAX
-    _sessione["visti"] = set()
-    piano = costruisci_piano(GIOCATORE, PERCORSO_DB, elo_min=ELO_MIN, elo_max=ELO_MAX,
+    # Provo a ripristinare lo stato salvato; se non c'e', parto dai default.
+    if not _carica_stato():
+        _sessione["elo_min"] = ELO_MIN
+        _sessione["elo_max"] = ELO_MAX
+        _sessione["visti"] = set()
+    piano = costruisci_piano(GIOCATORE, PERCORSO_DB,
+                             elo_min=_sessione["elo_min"], elo_max=_sessione["elo_max"],
                              puzzle_per_blocco=PUZZLE_PER_BLOCCO)
     if piano is None:
         return False
@@ -272,12 +330,16 @@ def registra_esito(esito: Esito):
                 esito.risultato, esito.puzzle_id, successo, tentati, perc)
     risposta = statistiche()
     risposta["fascia_cambiata"] = cambiamento_fascia
+    _salva_stato()  # persisto lo stato dopo ogni esito
     return risposta
 
 
 @app.get("/statistiche")
 def statistiche():
     """Restituisce le statistiche di sessione correnti."""
+    # Garantisco che lo stato salvato sia caricato prima di leggere i valori.
+    if _sessione["piano"] is None:
+        _prepara_sessione()
     tentati = _sessione["tentati"]
     successo = _sessione["risolti_primo"]
     perc_primo = round(100 * successo / tentati, 1) if tentati else 0.0
