@@ -52,6 +52,19 @@ BLOCCO_ADATTIVO = 10     # ogni quanti puzzle ricalibrare
 SOGLIA_ALZA = 90.0       # sopra questa % (sul blocco) -> alza la fascia
 SOGLIA_ABBASSA = 70.0    # sotto questa % -> abbassa la fascia
 PASSO_ELO = 100          # di quanti punti spostare la fascia
+PUZZLE_PER_BLOCCO = 30   # quanti puzzle pescare per blocco (varieta')
+
+# Temi disponibili per la scelta libera (nome italiano -> tema Lichess).
+TEMI_DISPONIBILI = {
+    "forchetta": "fork",
+    "inchiodatura": "pin",
+    "infilata": "skewer",
+    "pezzo_in_presa": "hangingPiece",
+    "attacco_di_scoperta": "discoveredAttack",
+    "sacrificio": "sacrifice",
+    "matto_in_2": "mateIn2",
+    "finale_di_torre": "rookEndgame",
+}
 ELO_MIN_ASSOLUTO = 600   # limiti per non uscire dai puzzle esistenti
 ELO_MAX_ASSOLUTO = 2800
 
@@ -82,6 +95,8 @@ _sessione = {
     "blocco_primo": 0,       # risolti al primo nel blocco corrente
     "blocco_conteggio": 0,   # puzzle nel blocco corrente
     "storico_fasce": [],     # traccia i cambi di fascia
+    "visti": set(),          # ID dei puzzle gia' serviti (mai riproporli)
+    "tema_libero": None,     # se impostato, allenamento focalizzato su un tema Lichess
 }
 
 
@@ -89,7 +104,9 @@ def _prepara_sessione():
     """Costruisce il piano e appiattisce i puzzle in una coda ordinata."""
     _sessione["elo_min"] = ELO_MIN
     _sessione["elo_max"] = ELO_MAX
-    piano = costruisci_piano(GIOCATORE, PERCORSO_DB, elo_min=ELO_MIN, elo_max=ELO_MAX)
+    _sessione["visti"] = set()
+    piano = costruisci_piano(GIOCATORE, PERCORSO_DB, elo_min=ELO_MIN, elo_max=ELO_MAX,
+                             puzzle_per_blocco=PUZZLE_PER_BLOCCO)
     if piano is None:
         return False
     coda = []
@@ -105,6 +122,7 @@ def _prepara_sessione():
                 "motivo_allenamento": blocco["motivo"],
                 "fase_allenamento": blocco["fase"],
             })
+            _sessione["visti"].add(p["id"])
     _sessione["piano"] = piano
     _sessione["coda"] = coda
     _sessione["serviti"] = 0
@@ -113,12 +131,56 @@ def _prepara_sessione():
 
 
 
+
+def _riempi_coda_tema(tema_lichess):
+    """
+    Riempie la coda con puzzle di UN SOLO tema, nella fascia Elo corrente,
+    escludendo i visti. Usata dalla modalita' allenamento focalizzato.
+    """
+    from raccomanda import raccomanda
+    import sqlite3
+    # raccomanda filtra per fase/motivo noti; qui usiamo il tema direttamente,
+    # quindi facciamo una query diretta sul database per massima flessibilita'.
+    conn = sqlite3.connect(PERCORSO_DB)
+    cur = conn.cursor()
+    visti = list(_sessione["visti"])
+    condizioni = ["themes LIKE ?", "rating BETWEEN ? AND ?"]
+    parametri = [f"%{tema_lichess}%", _sessione["elo_min"], _sessione["elo_max"]]
+    if visti:
+        segnaposto = ",".join("?" for _ in visti)
+        condizioni.append(f"id NOT IN ({segnaposto})")
+        parametri.extend(visti)
+    # Random su sottoinsieme (veloce): limita i candidati, poi mescola.
+    query = ("SELECT id, fen, moves, rating, themes FROM ("
+             + "SELECT id, fen, moves, rating, themes FROM puzzle WHERE "
+             + " AND ".join(condizioni) + " LIMIT 5000"
+             + ") ORDER BY RANDOM() LIMIT ?")
+    parametri.append(PUZZLE_PER_BLOCCO)
+    cur.execute(query, parametri)
+    righe = cur.fetchall()
+    conn.close()
+    nuova_coda = _sessione["coda"][:_sessione["serviti"]]  # tieni i gia' serviti
+    for r in righe:
+        nuova_coda.append({
+            "id": r[0], "fen": r[1], "moves": r[2], "rating": r[3], "themes": r[4],
+            "motivo_allenamento": _sessione["tema_libero"],
+            "fase_allenamento": "tema scelto",
+        })
+        _sessione["visti"].add(r[0])
+    _sessione["coda"] = nuova_coda
+    logger.info("Coda tema '%s' riempita: %d puzzle (fascia %d-%d)",
+                _sessione["tema_libero"], len(righe),
+                _sessione["elo_min"], _sessione["elo_max"])
+
 def _ricostruisci_coda_con_fascia():
     """
-    Dopo un cambio di fascia, ripesca i puzzle dei temi del piano con la nuova
-    fascia di Elo. Mantiene gli stessi temi (le debolezze), cambia la difficolta'.
-    Aggiunge i nuovi puzzle in coda dopo quelli gia' serviti.
+    Dopo un cambio di fascia, ripesca i puzzle con la nuova fascia di Elo.
+    In modalita' tema libero ripesca quel tema; altrimenti i temi del piano.
     """
+    # Modalita' tema libero: ripesca solo quel tema.
+    if _sessione["tema_libero"] is not None:
+        _riempi_coda_tema(TEMI_DISPONIBILI[_sessione["tema_libero"]])
+        return
     piano = _sessione["piano"]
     if piano is None:
         return
@@ -127,7 +189,8 @@ def _ricostruisci_coda_con_fascia():
     for blocco in piano["blocchi"]:
         puzzle = raccomanda(PERCORSO_DB, fase=blocco["fase"], motivo=blocco["motivo"],
                             elo_min=_sessione["elo_min"], elo_max=_sessione["elo_max"],
-                            quanti=10)
+                            quanti=PUZZLE_PER_BLOCCO,
+                            escludi_id=list(_sessione["visti"]))
         for p in puzzle:
             nuova_coda.append({
                 "id": p["id"], "fen": p["fen"], "moves": p["moves"],
@@ -135,6 +198,7 @@ def _ricostruisci_coda_con_fascia():
                 "motivo_allenamento": blocco["motivo"],
                 "fase_allenamento": blocco["fase"],
             })
+            _sessione["visti"].add(p["id"])
     _sessione["coda"] = nuova_coda
     logger.info("Coda ricostruita con fascia %d-%d: %d puzzle totali",
                 _sessione["elo_min"], _sessione["elo_max"], len(nuova_coda))
@@ -226,6 +290,30 @@ def statistiche():
         "elo_min": _sessione["elo_min"],
         "elo_max": _sessione["elo_max"],
     }
+
+
+@app.get("/temi")
+def lista_temi():
+    """Restituisce i temi disponibili per la scelta libera."""
+    return {"temi": list(TEMI_DISPONIBILI.keys())}
+
+
+@app.post("/scegli-tema/{tema}")
+def scegli_tema(tema: str):
+    """
+    Avvia l'allenamento focalizzato su un tema. Mantiene la fascia Elo corrente
+    e l'adattivita'; cambia solo COSA viene proposto.
+    """
+    if tema not in TEMI_DISPONIBILI:
+        return JSONResponse(status_code=404,
+                            content={"errore": f"Tema sconosciuto: {tema}"})
+    # Assicuriamoci che la sessione sia pronta (per avere fascia/visti).
+    if _sessione["piano"] is None:
+        _prepara_sessione()
+    _sessione["tema_libero"] = tema
+    _riempi_coda_tema(TEMI_DISPONIBILI[tema])
+    logger.info("Modalita' tema attivata: %s", tema)
+    return {"tema": tema, "messaggio": f"Allenamento focalizzato su: {tema}"}
 
 
 @app.get("/")

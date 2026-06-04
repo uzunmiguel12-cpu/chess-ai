@@ -42,13 +42,13 @@ MOTIVO_LICHESS = {
 
 
 def raccomanda(percorso_db, fase=None, motivo=None,
-               elo_min=1050, elo_max=1250, quanti=10):
+               elo_min=1050, elo_max=1250, quanti=10, escludi_id=None):
     """
     Pesca dal database puzzle nella fascia di Elo indicata, filtrando per i temi
     corrispondenti a fase e/o motivo tattico.
 
     RESTITUISCE una lista di dizionari-puzzle (id, fen, moves, rating, themes).
-    Ordinati per popolarita' decrescente (i piu' apprezzati prima).
+    Ordinati a caso (per varieta'). Esclude gli ID in escludi_id (gia' visti).
     """
     if not os.path.exists(percorso_db):
         logger.error("Database puzzle non trovato: %s", percorso_db)
@@ -74,10 +74,22 @@ def raccomanda(percorso_db, fase=None, motivo=None,
         condizioni.append("themes LIKE ?")
         parametri.append(f"%{tema_motivo}%")
 
+    # Escludiamo i puzzle gia' visti (per non riproporli mai).
+    if escludi_id:
+        segnaposto = ",".join("?" for _ in escludi_id)
+        condizioni.append(f"id NOT IN ({segnaposto})")
+        parametri.extend(escludi_id)
+
+    # Varieta' SENZA lentezza: invece di ORDER BY RANDOM() su tutta la tabella
+    # (lentissimo su milioni di righe), prima limitiamo a un sottoinsieme di
+    # candidati, poi mescoliamo solo quelli. ~200x piu' veloce.
+    SOTTOINSIEME = 5000
     query = (
-        "SELECT id, fen, moves, rating, themes FROM puzzle WHERE "
+        "SELECT id, fen, moves, rating, themes FROM ("
+        + "SELECT id, fen, moves, rating, themes FROM puzzle WHERE "
         + " AND ".join(condizioni)
-        + " ORDER BY popularity DESC LIMIT ?"
+        + f" LIMIT {SOTTOINSIEME}"
+        + ") ORDER BY RANDOM() LIMIT ?"
     )
     parametri.append(quanti)
 
