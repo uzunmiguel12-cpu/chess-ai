@@ -21,6 +21,7 @@ import sys
 import logging
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 # Il piano vive in rag/, il profilo in ml/: aggiungiamo i percorsi per importarli.
 _QUI = os.path.dirname(os.path.abspath(__file__))
@@ -46,6 +47,15 @@ ELO_MIN = int(os.environ.get("CHESS_ELO_MIN", "1050"))
 ELO_MAX = int(os.environ.get("CHESS_ELO_MAX", "1250"))
 
 app = FastAPI(title="Chess-AI - Allenamento puzzle")
+
+# CORS: permette al frontend (su un'altra porta, es. 5173) di interrogare
+# questo backend. Senza, il browser bloccherebbe le richieste per sicurezza.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Stato in memoria della sessione: il piano e quanti puzzle abbiamo servito.
 _sessione = {
