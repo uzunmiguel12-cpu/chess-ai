@@ -128,6 +128,11 @@ async function inviaEsito(risultato) {
     });
     const stats = await risposta.json();
     mostraStatistiche(stats);
+    if (stats.fascia_cambiata) {
+      const verso = stats.fascia_cambiata === 'alzata' ? '📈 salita' : '📉 scesa';
+      elInfo.textContent +=
+        `  ·  Difficoltà ${verso}! Nuova fascia Elo ${stats.elo_min}-${stats.elo_max}`;
+    }
   } catch (err) {
     console.error('Errore invio esito:', err);
   }
@@ -138,7 +143,8 @@ function mostraStatistiche(stats) {
   if (!elStats) return;
   elStats.textContent =
     `Sessione: ${stats.risolti_primo}/${stats.tentati} al primo colpo ` +
-    `(${stats.percentuale_primo}%) · ${stats.falliti} soluzioni viste`;
+    `(${stats.percentuale_primo}%) · ${stats.falliti} soluzioni viste` +
+    (stats.elo_min ? `  ·  fascia attuale ${stats.elo_min}-${stats.elo_max}` : '');
 }
 
 // Chiamata quando il giocatore trascina un pezzo.
