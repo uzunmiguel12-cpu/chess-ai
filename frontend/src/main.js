@@ -13,6 +13,7 @@
 
 import { Chess } from 'chess.js';
 import { Chessground } from 'chessground';
+import Chart from 'chart.js/auto';
 
 // Stili di chessground (scacchiera e pezzi).
 import 'chessground/assets/chessground.base.css';
@@ -40,6 +41,9 @@ const elStato = document.getElementById('stato');
 const elProssimo = document.getElementById('prossimo');
 const elStats = document.getElementById('stats');
 const elTemi = document.getElementById('temi');
+const elToggleProg = document.getElementById('toggle-progressi');
+const elProgressi = document.getElementById('progressi');
+const elProgressiVuoto = document.getElementById('progressi-vuoto');
 
 // Converte una stringa UCI ("e2e4") in {from, to, promotion}.
 function uciToMove(uci) {
@@ -153,6 +157,8 @@ async function inviaEsito(risultato) {
     });
     const stats = await risposta.json();
     mostraStatistiche(stats);
+    // Se la sezione progressi e' aperta, tengo i grafici aggiornati.
+    if (elProgressi && !elProgressi.hidden) aggiornaProgressi();
     if (stats.fascia_cambiata) {
       const verso = stats.fascia_cambiata === 'alzata' ? '📈 salita' : '📉 scesa';
       elInfo.innerHTML +=
@@ -228,18 +234,31 @@ function onMossaGiocatore(orig, dest) {
 }
 
 
-// Carica i temi disponibili dal backend e crea i pulsanti.
+// Carica i temi disponibili dal backend e crea i pulsanti, raggruppati per
+// categoria (Tattiche / Matti / Finali).
 async function caricaTemi() {
   try {
     const risposta = await fetch(`${BACKEND}/temi`);
     const dati = await risposta.json();
-    elTemi.innerHTML = '<span class="temi-label">Allenati su un tema:</span> ';
-    dati.temi.forEach((tema) => {
-      const btn = document.createElement('button');
-      btn.className = 'tema-btn';
-      btn.textContent = tema.replace(/_/g, ' ');
-      btn.addEventListener('click', () => scegliTema(tema));
-      elTemi.appendChild(btn);
+    elTemi.innerHTML = '<span class="temi-label">Allenati su un tema:</span>';
+    // Fallback: se il backend non manda le categorie, uso la lista piatta.
+    const categorie = dati.categorie || { Temi: dati.temi };
+    Object.entries(categorie).forEach(([categoria, temi]) => {
+      const gruppo = document.createElement('div');
+      gruppo.className = 'tema-gruppo';
+      const titolo = document.createElement('span');
+      titolo.className = 'tema-categoria';
+      titolo.textContent = categoria;
+      gruppo.appendChild(titolo);
+      temi.forEach((tema) => {
+        const btn = document.createElement('button');
+        btn.className = 'tema-btn';
+        btn.textContent = tema.replace(/_/g, ' ');
+        btn.dataset.tema = tema;  // valore vero, indipendente dal testo mostrato
+        btn.addEventListener('click', () => scegliTema(tema));
+        gruppo.appendChild(btn);
+      });
+      elTemi.appendChild(gruppo);
     });
   } catch (err) {
     console.error('Errore caricamento temi:', err);
@@ -250,15 +269,109 @@ async function caricaTemi() {
 async function scegliTema(tema) {
   try {
     await fetch(`${BACKEND}/scegli-tema/${tema}`, { method: 'POST' });
-    // Evidenzio il tema attivo tra i pulsanti.
+    // Evidenzio il tema attivo tra i pulsanti (confronto sul valore vero).
     document.querySelectorAll('.tema-btn').forEach((b) => {
-      b.classList.toggle('attivo', b.textContent === tema.replace(/_/g, ' '));
+      b.classList.toggle('attivo', b.dataset.tema === tema);
     });
     caricaProssimoPuzzle();
   } catch (err) {
     console.error('Errore scelta tema:', err);
   }
 }
+
+// --- Sezione "I miei progressi" (grafici Chart.js) ---
+
+let graficoElo = null;
+let graficoTemi = null;
+
+// Scarica i dati e ridisegna i due grafici.
+async function aggiornaProgressi() {
+  try {
+    const [rFasce, rTemi] = await Promise.all([
+      fetch(`${BACKEND}/storico-fasce`).then((r) => r.json()),
+      fetch(`${BACKEND}/statistiche-temi`).then((r) => r.json()),
+    ]);
+    disegnaGraficoElo(rFasce);
+    disegnaGraficoTemi(rTemi.temi || {});
+    // Avviso "pochi dati" se non c'e' ancora nulla di significativo.
+    const niente = (rFasce.storico_fasce || []).length === 0 &&
+                   Object.keys(rTemi.temi || {}).length === 0;
+    elProgressiVuoto.hidden = !niente;
+  } catch (err) {
+    console.error('Errore caricamento progressi:', err);
+  }
+}
+
+// (a) Fascia Elo nel tempo: ricostruita dallo storico dei cambi di fascia.
+function disegnaGraficoElo(dati) {
+  const storico = dati.storico_fasce || [];
+  const etichette = [];
+  const valori = [];  // punto medio della fascia, piu' leggibile di due linee
+  if (storico.length > 0) {
+    const partenza = storico[0].da;  // fascia prima del primo cambio
+    etichette.push('inizio');
+    valori.push((partenza[0] + partenza[1]) / 2);
+    storico.forEach((s, i) => {
+      etichette.push(`cambio ${i + 1}`);
+      valori.push((s.a[0] + s.a[1]) / 2);
+    });
+  } else {
+    // Nessun cambio ancora: mostro solo la fascia attuale come singolo punto.
+    etichette.push('ora');
+    valori.push((dati.elo_min + dati.elo_max) / 2);
+  }
+  const canvas = document.getElementById('grafico-elo');
+  if (graficoElo) graficoElo.destroy();
+  graficoElo = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: etichette,
+      datasets: [{
+        label: 'Fascia Elo (punto medio)',
+        data: valori,
+        borderColor: '#4a7',
+        backgroundColor: 'rgba(68,170,119,0.2)',
+        tension: 0.2,
+        fill: true,
+      }],
+    },
+    options: {
+      responsive: true,
+      plugins: { title: { display: true, text: 'Fascia Elo nel tempo' } },
+    },
+  });
+}
+
+// (b) Percentuale di successo al primo colpo per tema.
+function disegnaGraficoTemi(temi) {
+  const chiavi = Object.keys(temi);
+  const etichette = chiavi.map((t) => t.replace(/_/g, ' '));
+  const valori = chiavi.map((t) => temi[t].percentuale_primo);
+  const canvas = document.getElementById('grafico-temi');
+  if (graficoTemi) graficoTemi.destroy();
+  graficoTemi = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: etichette,
+      datasets: [{
+        label: '% risolti al primo colpo',
+        data: valori,
+        backgroundColor: '#4a7',
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: { y: { beginAtZero: true, max: 100 } },
+      plugins: { title: { display: true, text: 'Successo per tema (%)' } },
+    },
+  });
+}
+
+// Mostra/nasconde la sezione progressi; quando la apro, aggiorno i grafici.
+elToggleProg.addEventListener('click', () => {
+  elProgressi.hidden = !elProgressi.hidden;
+  if (!elProgressi.hidden) aggiornaProgressi();
+});
 
 // Pulsante "prossimo puzzle".
 elProssimo.addEventListener('click', caricaProssimoPuzzle);

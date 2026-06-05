@@ -56,16 +56,51 @@ SOGLIA_ABBASSA = 70.0    # sotto questa % -> abbassa la fascia
 PASSO_ELO = 100          # di quanti punti spostare la fascia
 PUZZLE_PER_BLOCCO = 30   # quanti puzzle pescare per blocco (varieta')
 
-# Temi disponibili per la scelta libera (nome italiano -> tema Lichess).
+# --- Parametri dell'esaurimento puzzle ---
+# Quando un blocco/tema ha pochi puzzle nuovi nella fascia corrente, alziamo
+# SOLO TEMPORANEAMENTE il tetto per ripescare, senza toccare la fascia di base.
+PUZZLE_MINIMI = 5          # min. puzzle nuovi per considerare la fascia sufficiente
+ALLARGAMENTO_PASSO = 100   # di quanto alzare il tetto a ogni tentativo
+ALLARGAMENTO_MAX = 400     # allargamento massimo totale sopra il tetto di base
+
+# Temi disponibili per la scelta libera, raggruppati per categoria.
+# Mappa categoria -> {nome italiano -> tema Lichess}.
+TEMI_CATEGORIE = {
+    "Tattiche": {
+        "forchetta": "fork",
+        "inchiodatura": "pin",
+        "infilata": "skewer",
+        "pezzo_in_presa": "hangingPiece",
+        "attacco_di_scoperta": "discoveredAttack",
+        "deviazione": "deflection",
+        "adescamento": "attraction",
+        "interferenza": "interference",
+        "attacco_a_raggi_x": "xRayAttack",
+        "sacrificio": "sacrifice",
+        "mossa_intermedia": "intermezzo",
+    },
+    "Matti": {
+        "matto_in_1": "mateIn1",
+        "matto_in_2": "mateIn2",
+        "matto_in_3": "mateIn3",
+        "matto_affogato": "smotheredMate",
+        "matto_colonna_base": "backRankMate",
+        "matto_arabo": "arabianMate",
+    },
+    "Finali": {
+        "finale_di_torre": "rookEndgame",
+        "finale_di_pedoni": "pawnEndgame",
+        "finale_di_alfieri": "bishopEndgame",
+        "finale_di_cavalli": "knightEndgame",
+        "finale_di_donna": "queenEndgame",
+        "pedone_avanzato": "advancedPawn",
+        "promozione": "promotion",
+    },
+}
+# Mappa piatta nome italiano -> tema Lichess (unione di tutte le categorie),
+# usata da scegli_tema e dalla pesca. 24 temi in totale.
 TEMI_DISPONIBILI = {
-    "forchetta": "fork",
-    "inchiodatura": "pin",
-    "infilata": "skewer",
-    "pezzo_in_presa": "hangingPiece",
-    "attacco_di_scoperta": "discoveredAttack",
-    "sacrificio": "sacrifice",
-    "matto_in_2": "mateIn2",
-    "finale_di_torre": "rookEndgame",
+    it: en for temi in TEMI_CATEGORIE.values() for it, en in temi.items()
 }
 ELO_MIN_ASSOLUTO = 600   # limiti per non uscire dai puzzle esistenti
 ELO_MAX_ASSOLUTO = 2800
@@ -99,6 +134,10 @@ _sessione = {
     "storico_fasce": [],     # traccia i cambi di fascia
     "visti": set(),          # ID dei puzzle gia' serviti (mai riproporli)
     "tema_libero": None,     # se impostato, allenamento focalizzato su un tema Lichess
+    "esaurito": False,       # True se i puzzle nuovi scarseggiano (vedi esaurimento)
+    # Statistiche per tema: tema -> {"tentati": n, "risolti_primo": n}.
+    # Solo conteggi: NON influenzano in alcun modo la fascia/adattivita'.
+    "statistiche_temi": {},
 }
 
 def _salva_stato():
@@ -116,6 +155,7 @@ def _salva_stato():
         "falliti": _sessione["falliti"],
         "visti": list(_sessione["visti"]),  # set -> lista per il JSON
         "storico_fasce": _sessione["storico_fasce"],
+        "statistiche_temi": _sessione["statistiche_temi"],
     }
     try:
         tmp = PERCORSO_STATO + ".tmp"
@@ -144,6 +184,7 @@ def _carica_stato():
         _sessione["falliti"] = stato.get("falliti", 0)
         _sessione["visti"] = set(stato.get("visti", []))  # lista -> set
         _sessione["storico_fasce"] = stato.get("storico_fasce", [])
+        _sessione["statistiche_temi"] = stato.get("statistiche_temi", {})
         logger.info("Stato ripristinato: fascia %d-%d, %d puzzle visti, %d tentati",
                     _sessione["elo_min"], _sessione["elo_max"],
                     len(_sessione["visti"]), _sessione["tentati"])
@@ -190,12 +231,43 @@ def _prepara_sessione():
 
 
 
-def _riempi_coda_tema(tema_lichess):
+def _pesca_allargando(pesca):
     """
-    Riempie la coda con puzzle di UN SOLO tema, nella fascia Elo corrente,
-    escludendo i visti. Usata dalla modalita' allenamento focalizzato.
+    Cerca puzzle NUOVI tenendo fisso il pavimento (l'elo_min di sessione) e alzando
+    SOLO TEMPORANEAMENTE il tetto superiore quando i puzzle nuovi scarseggiano.
+
+    `pesca(elo_max_eff)` deve restituire la lista di puzzle nuovi trovati nella
+    fascia [elo_min di sessione, elo_max_eff].
+
+    Parte dal tetto di base (la fascia adattiva di sessione). Finche' i puzzle
+    nuovi sono meno di PUZZLE_MINIMI, alza il tetto di ALLARGAMENTO_PASSO alla
+    volta, fino a +ALLARGAMENTO_MAX sopra il tetto di base oppure al tetto assoluto
+    ELO_MAX_ASSOLUTO. La fascia di base in _sessione NON viene MAI toccata: questo
+    e' solo un allargamento "effettivo" e temporaneo per la singola pesca, cosi'
+    l'adattivita' resta l'unica padrona della fascia di base.
+
+    RESTITUISCE (righe, esaurito): esaurito=True se nemmeno col tetto massimo si
+    raggiungono PUZZLE_MINIMI puzzle nuovi.
     """
-    from raccomanda import raccomanda
+    base_max = _sessione["elo_max"]
+    tetto_limite = min(base_max + ALLARGAMENTO_MAX, ELO_MAX_ASSOLUTO)
+    elo_max_eff = base_max
+    righe = pesca(elo_max_eff)
+    while len(righe) < PUZZLE_MINIMI and elo_max_eff < tetto_limite:
+        elo_max_eff = min(elo_max_eff + ALLARGAMENTO_PASSO, tetto_limite)
+        righe = pesca(elo_max_eff)
+        logger.info("Pochi puzzle nuovi: tetto allargato temporaneamente a %d "
+                    "(base %d), trovati %d", elo_max_eff, base_max, len(righe))
+    esaurito = len(righe) < PUZZLE_MINIMI
+    return righe, esaurito
+
+
+def _pesca_tema_righe(tema_lichess, elo_max):
+    """
+    Query diretta sul database: puzzle NUOVI di un tema nella fascia
+    [elo_min di sessione, elo_max], escludendo i visti.
+    `elo_max` puo' essere il tetto di base o uno allargato temporaneamente.
+    """
     import sqlite3
     # raccomanda filtra per fase/motivo noti; qui usiamo il tema direttamente,
     # quindi facciamo una query diretta sul database per massima flessibilita'.
@@ -203,7 +275,7 @@ def _riempi_coda_tema(tema_lichess):
     cur = conn.cursor()
     visti = list(_sessione["visti"])
     condizioni = ["themes LIKE ?", "rating BETWEEN ? AND ?"]
-    parametri = [f"%{tema_lichess}%", _sessione["elo_min"], _sessione["elo_max"]]
+    parametri = [f"%{tema_lichess}%", _sessione["elo_min"], elo_max]
     if visti:
         segnaposto = ",".join("?" for _ in visti)
         condizioni.append(f"id NOT IN ({segnaposto})")
@@ -217,6 +289,18 @@ def _riempi_coda_tema(tema_lichess):
     cur.execute(query, parametri)
     righe = cur.fetchall()
     conn.close()
+    return righe
+
+
+def _riempi_coda_tema(tema_lichess):
+    """
+    Riempie la coda con puzzle di UN SOLO tema, partendo dalla fascia Elo corrente
+    ed escludendo i visti. Se i puzzle nuovi scarseggiano allarga temporaneamente
+    il tetto (senza toccare la fascia di sessione). Imposta _sessione["esaurito"].
+    RESTITUISCE True se il tema e' esaurito (puzzle nuovi insufficienti).
+    """
+    righe, esaurito = _pesca_allargando(
+        lambda emax: _pesca_tema_righe(tema_lichess, emax))
     nuova_coda = _sessione["coda"][:_sessione["serviti"]]  # tieni i gia' serviti
     for r in righe:
         nuova_coda.append({
@@ -226,9 +310,15 @@ def _riempi_coda_tema(tema_lichess):
         })
         _sessione["visti"].add(r[0])
     _sessione["coda"] = nuova_coda
-    logger.info("Coda tema '%s' riempita: %d puzzle (fascia %d-%d)",
-                _sessione["tema_libero"], len(righe),
-                _sessione["elo_min"], _sessione["elo_max"])
+    _sessione["esaurito"] = esaurito
+    if esaurito:
+        logger.info("Tema '%s' esaurito: solo %d puzzle nuovi anche col tetto "
+                    "allargato.", _sessione["tema_libero"], len(righe))
+    else:
+        logger.info("Coda tema '%s' riempita: %d puzzle nuovi (fascia base %d-%d)",
+                    _sessione["tema_libero"], len(righe),
+                    _sessione["elo_min"], _sessione["elo_max"])
+    return esaurito
 
 def _ricostruisci_coda_con_fascia():
     """
@@ -244,11 +334,14 @@ def _ricostruisci_coda_con_fascia():
         return
     from raccomanda import raccomanda
     nuova_coda = _sessione["coda"][:_sessione["serviti"]]  # tieni i gia' serviti
+    nuovi = 0
     for blocco in piano["blocchi"]:
-        puzzle = raccomanda(PERCORSO_DB, fase=blocco["fase"], motivo=blocco["motivo"],
-                            elo_min=_sessione["elo_min"], elo_max=_sessione["elo_max"],
-                            quanti=PUZZLE_PER_BLOCCO,
-                            escludi_id=list(_sessione["visti"]))
+        # b=blocco fissa il blocco nella lambda (evita la late-binding nel ciclo).
+        puzzle, _ = _pesca_allargando(
+            lambda emax, b=blocco: raccomanda(
+                PERCORSO_DB, fase=b["fase"], motivo=b["motivo"],
+                elo_min=_sessione["elo_min"], elo_max=emax,
+                quanti=PUZZLE_PER_BLOCCO, escludi_id=list(_sessione["visti"])))
         for p in puzzle:
             nuova_coda.append({
                 "id": p["id"], "fen": p["fen"], "moves": p["moves"],
@@ -257,9 +350,12 @@ def _ricostruisci_coda_con_fascia():
                 "fase_allenamento": blocco["fase"],
             })
             _sessione["visti"].add(p["id"])
+            nuovi += 1
     _sessione["coda"] = nuova_coda
-    logger.info("Coda ricostruita con fascia %d-%d: %d puzzle totali",
-                _sessione["elo_min"], _sessione["elo_max"], len(nuova_coda))
+    # Esaurito se, in tutto il piano, i puzzle nuovi aggiunti sono insufficienti.
+    _sessione["esaurito"] = nuovi < PUZZLE_MINIMI
+    logger.info("Coda ricostruita con fascia base %d-%d: %d puzzle nuovi aggiunti",
+                _sessione["elo_min"], _sessione["elo_max"], nuovi)
 
 
 def _valuta_adattivita():
@@ -307,6 +403,33 @@ class Esito(BaseModel):
     risultato: str  # "primo" | "secondo" | "fallito"
 
 
+def _tema_di_puzzle(puzzle_id):
+    """
+    Trova il tema (motivo_allenamento) del puzzle servito, cercandolo in coda.
+    RESTITUISCE il nome del tema, "altro" se il puzzle non ha tema, None se
+    il puzzle non e' in coda.
+    """
+    for p in _sessione["coda"]:
+        if p["id"] == puzzle_id:
+            return p.get("motivo_allenamento") or "altro"
+    return None
+
+
+def _aggiorna_statistiche_tema(puzzle_id, risultato):
+    """
+    Aggiorna i conteggi per-tema (tentati / risolti_primo). Solo statistica:
+    NON tocca fascia, blocco o adattivita'.
+    """
+    tema = _tema_di_puzzle(puzzle_id)
+    if tema is None:
+        return
+    st = _sessione["statistiche_temi"].setdefault(
+        tema, {"tentati": 0, "risolti_primo": 0})
+    st["tentati"] += 1
+    if risultato == "primo":
+        st["risolti_primo"] += 1
+
+
 @app.post("/esito")
 def registra_esito(esito: Esito):
     """Riceve l'esito di un puzzle e aggiorna le statistiche di sessione."""
@@ -319,6 +442,9 @@ def registra_esito(esito: Esito):
         _sessione["risolti_secondo"] += 1
     else:
         _sessione["falliti"] += 1
+
+    # Statistiche per tema (solo conteggi, indipendenti dall'adattivita').
+    _aggiorna_statistiche_tema(esito.puzzle_id, esito.risultato)
 
     # A fine blocco, valuta se adattare la difficolta'.
     cambiamento_fascia = _valuta_adattivita()
@@ -356,8 +482,50 @@ def statistiche():
 
 @app.get("/temi")
 def lista_temi():
-    """Restituisce i temi disponibili per la scelta libera."""
-    return {"temi": list(TEMI_DISPONIBILI.keys())}
+    """
+    Restituisce i temi disponibili per la scelta libera. Sia la lista piatta
+    (compatibilita') sia il raggruppamento per categoria (Tattiche/Matti/Finali).
+    """
+    return {
+        "temi": list(TEMI_DISPONIBILI.keys()),
+        "categorie": {cat: list(temi.keys())
+                      for cat, temi in TEMI_CATEGORIE.items()},
+    }
+
+
+@app.get("/statistiche-temi")
+def statistiche_temi():
+    """
+    Restituisce, per ogni tema affrontato, quanti puzzle tentati e quanti
+    risolti al primo colpo, con la relativa percentuale. Dati persistiti.
+    """
+    if _sessione["piano"] is None:
+        _prepara_sessione()
+    risultato = {}
+    for tema, st in _sessione["statistiche_temi"].items():
+        tentati = st["tentati"]
+        primo = st["risolti_primo"]
+        risultato[tema] = {
+            "tentati": tentati,
+            "risolti_primo": primo,
+            "percentuale_primo": round(100 * primo / tentati, 1) if tentati else 0.0,
+        }
+    return {"temi": risultato}
+
+
+@app.get("/storico-fasce")
+def storico_fasce():
+    """
+    Restituisce lo storico dei cambi di fascia (per il grafico Elo nel tempo)
+    e la fascia attuale.
+    """
+    if _sessione["piano"] is None:
+        _prepara_sessione()
+    return {
+        "storico_fasce": _sessione["storico_fasce"],
+        "elo_min": _sessione["elo_min"],
+        "elo_max": _sessione["elo_max"],
+    }
 
 
 @app.post("/scegli-tema/{tema}")
@@ -373,9 +541,15 @@ def scegli_tema(tema: str):
     if _sessione["piano"] is None:
         _prepara_sessione()
     _sessione["tema_libero"] = tema
-    _riempi_coda_tema(TEMI_DISPONIBILI[tema])
+    esaurito = _riempi_coda_tema(TEMI_DISPONIBILI[tema])
     logger.info("Modalita' tema attivata: %s", tema)
-    return {"tema": tema, "messaggio": f"Allenamento focalizzato su: {tema}"}
+    risposta = {"tema": tema, "messaggio": f"Allenamento focalizzato su: {tema}",
+                "esaurito": esaurito}
+    if esaurito:
+        risposta["suggerimento"] = (
+            "Pochi puzzle nuovi per questo tema, anche allargando la fascia: "
+            "prova a cambiare tema per continuare a variare.")
+    return risposta
 
 
 @app.get("/")
@@ -412,13 +586,26 @@ def prossimo_puzzle():
 
     idx = _sessione["serviti"]
     if idx >= len(_sessione["coda"]):
-        return {"fine": True, "messaggio": "Hai completato tutti i puzzle del piano!"}
+        risposta = {"fine": True,
+                    "messaggio": "Hai completato tutti i puzzle disponibili!"}
+        if _sessione["esaurito"]:
+            risposta["esaurito"] = True
+            risposta["suggerimento"] = (
+                "I puzzle nuovi di questo tema sono esauriti, anche allargando la "
+                "fascia di Elo. Prova a cambiare tema.")
+        return risposta
 
     puzzle = _sessione["coda"][idx]
     _sessione["serviti"] += 1
-    return {
+    risposta = {
         "fine": False,
         "numero": idx + 1,
         "totale": len(_sessione["coda"]),
         "puzzle": puzzle,
+        "esaurito": _sessione["esaurito"],
     }
+    if _sessione["esaurito"]:
+        risposta["suggerimento"] = (
+            "I puzzle nuovi di questo tema stanno per finire, anche allargando la "
+            "fascia di Elo. Valuta di cambiare tema.")
+    return risposta

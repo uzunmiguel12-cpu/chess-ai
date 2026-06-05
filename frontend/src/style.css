@@ -71,3 +71,34 @@ button:hover { background: #386; }
 }
 .tema-btn:hover { background: #d0d0d0; }
 .tema-btn.attivo { background: #4a7; color: white; }
+
+/* Gruppi di temi per categoria (Tattiche / Matti / Finali) */
+.tema-gruppo {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+.tema-categoria {
+  width: 100%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.2rem;
+}
+
+/* --- Sezione "I miei progressi" --- */
+#toggle-progressi { background: #5a6; margin-left: 0.5rem; }
+#toggle-progressi:hover { background: #485; }
+#progressi { margin-top: 2rem; }
+#progressi h2 { font-size: 1.2rem; }
+.grafico-box {
+  max-width: 600px;
+  margin: 1.5rem auto;
+}
+.progressi-vuoto { color: #888; font-size: 0.9rem; }
