@@ -8,7 +8,14 @@
  * - chess.js gestisce le regole (mosse legali, posizione)
  * - chessground disegna la scacchiera e il drag&drop
  *
- * Regola tentativi: 2 tentativi sbagliati, poi mostra la soluzione e va avanti.
+ * Regola tentativi: 3 tentativi sbagliati, poi mostra la soluzione e va avanti.
+ * IMPORTANTE: conta come "successo" (per adattivita' e statistiche) SOLO il
+ * puzzle risolto al PRIMO tentativo. Il 2o e 3o tentativo sono margine didattico.
+ *
+ * Flussi: l'allenamento e' diviso in tre flussi indipendenti (piano / temi /
+ * errori), ciascuno con coda, fascia Elo e statistiche proprie. L'utente sceglie
+ * il flusso dal selettore in alto; statistiche e grafici si riferiscono al flusso
+ * attivo. Il flusso "errori" e' predisposto ma non ancora implementato.
  */
 
 import { Chess } from 'chess.js';
@@ -22,8 +29,17 @@ import 'chessground/assets/chessground.cburnett.css';
 import './style.css';
 
 const BACKEND = 'http://localhost:8000';
-const MAX_TENTATIVI = 2;
+const MAX_TENTATIVI = 3;
 const RITARDO_AVANZAMENTO = 800;  // ms di pausa dopo un puzzle risolto, poi avanza da solo
+
+// Metadati di presentazione dei tre flussi (etichetta lunga + breve).
+const FLUSSI_INFO = {
+  piano: { etichetta: '📋 Piano (debolezze)', breve: 'Piano' },
+  temi: { etichetta: '🎯 Temi liberi', breve: 'Temi' },
+  errori: { etichetta: '🛠️ Dai miei errori', breve: 'Errori' },
+};
+
+let flussoAttivo = 'piano';  // quale flusso e' attivo (sincronizzato col backend)
 
 // Stato corrente del puzzle in gioco.
 let chess = null;          // istanza chess.js con la posizione corrente
@@ -41,9 +57,13 @@ const elStato = document.getElementById('stato');
 const elProssimo = document.getElementById('prossimo');
 const elStats = document.getElementById('stats');
 const elTemi = document.getElementById('temi');
+const elFlussi = document.getElementById('flussi');
 const elToggleProg = document.getElementById('toggle-progressi');
 const elProgressi = document.getElementById('progressi');
 const elProgressiVuoto = document.getElementById('progressi-vuoto');
+const elIndicatoreTendenza = document.getElementById('indicatore-tendenza');
+const elRiepilogoBox = document.getElementById('riepilogo-box');
+const elProgressiFlusso = document.getElementById('progressi-flusso');
 
 // Converte una stringa UCI ("e2e4") in {from, to, promotion}.
 function uciToMove(uci) {
@@ -100,7 +120,7 @@ async function caricaProssimoPuzzle() {
     const dati = await risposta.json();
 
     if (dati.fine) {
-      elInfo.textContent = '🎉 Hai completato tutti i puzzle del piano!';
+      elInfo.textContent = dati.messaggio || '🎉 Hai completato tutti i puzzle disponibili!';
       return;
     }
 
@@ -169,13 +189,29 @@ async function inviaEsito(risultato) {
   }
 }
 
-// Mostra le statistiche di sessione nella pagina.
+// Mostra le statistiche del FLUSSO ATTIVO nella pagina (+ totale complessivo).
 function mostraStatistiche(stats) {
   if (!elStats) return;
-  elStats.textContent =
-    `Sessione: ${stats.risolti_primo}/${stats.tentati} al primo colpo ` +
+  const breve = (FLUSSI_INFO[stats.flusso] && FLUSSI_INFO[stats.flusso].breve) || stats.flusso;
+  const tema = stats.tema_libero ? ` (${stats.tema_libero.replace(/_/g, ' ')})` : '';
+  let testo =
+    `Flusso ${breve}${tema}: ${stats.risolti_primo}/${stats.tentati} al primo colpo ` +
     `(${stats.percentuale_primo}%) · ${stats.falliti} soluzioni viste` +
-    (stats.elo_min ? `  ·  fascia attuale ${stats.elo_min}-${stats.elo_max}` : '');
+    (stats.elo_min ? `  ·  fascia ${stats.elo_min}-${stats.elo_max}` : '');
+  if (stats.complessivo) {
+    testo += `  ·  totale su tutti i flussi: ${stats.complessivo.tentati_totali} puzzle`;
+  }
+  elStats.textContent = testo;
+}
+
+// Scarica e mostra le statistiche correnti del flusso attivo (senza un esito).
+async function aggiornaStatisticheDaServer() {
+  try {
+    const s = await fetch(`${BACKEND}/statistiche`).then((r) => r.json());
+    mostraStatistiche(s);
+  } catch (err) {
+    console.error('Errore caricamento statistiche:', err);
+  }
 }
 
 // Chiamata quando il giocatore trascina un pezzo.
@@ -198,7 +234,8 @@ function onMossaGiocatore(orig, dest) {
       aggiornaBoard();
       board.set({ movable: { color: undefined } });
       if (!esitoInviato) {
-        // 0 errori = "primo", 1 errore = "secondo"
+        // SOLO 0 errori = "primo" (= successo per adattivita'/statistiche);
+        // 1 o 2 errori = "secondo" (risolto ma non conta come successo).
         inviaEsito(tentativi === 0 ? 'primo' : 'secondo');
         esitoInviato = true;
       }
@@ -234,6 +271,69 @@ function onMossaGiocatore(orig, dest) {
 }
 
 
+// --- Selettore dei flussi (piano / temi / errori) ---
+
+// Scarica lo stato dei flussi e (ri)disegna il selettore.
+async function caricaFlussi() {
+  try {
+    const r = await fetch(`${BACKEND}/flussi`).then((x) => x.json());
+    flussoAttivo = r.flusso_attivo;
+    renderFlussi(r);
+  } catch (err) {
+    console.error('Errore caricamento flussi:', err);
+  }
+}
+
+// Disegna i pulsanti dei flussi, evidenzia l'attivo e mostra il totale complessivo.
+function renderFlussi(r) {
+  elFlussi.innerHTML = '<span class="flussi-label">Flusso di allenamento:</span>';
+  Object.entries(r.flussi).forEach(([nome, info]) => {
+    const btn = document.createElement('button');
+    btn.className = 'flusso-btn';
+    btn.classList.toggle('attivo', nome === r.flusso_attivo);
+    const meta = FLUSSI_INFO[nome] || { etichetta: nome };
+    btn.textContent = info.implementato ? meta.etichetta : `${meta.etichetta} (presto)`;
+    btn.dataset.flusso = nome;
+    if (info.implementato) {
+      btn.addEventListener('click', () => cambiaFlusso(nome));
+    } else {
+      btn.classList.add('disabilitato');
+      btn.disabled = true;
+      btn.title = 'Flusso non ancora implementato (arriverà col punto 6 della visione).';
+    }
+    elFlussi.appendChild(btn);
+  });
+  // Riepilogo complessivo: totale puzzle fatti sommando i flussi.
+  const c = r.complessivo;
+  if (c) {
+    const tot = document.createElement('span');
+    tot.className = 'flussi-totale';
+    tot.textContent = `Totale (tutti i flussi): ${c.tentati_totali} puzzle`;
+    elFlussi.appendChild(tot);
+  }
+  // I pulsanti dei temi servono solo nel flusso "temi".
+  elTemi.hidden = r.flusso_attivo !== 'temi';
+}
+
+// Cambia il flusso attivo, poi ricarica puzzle, statistiche ed eventuali grafici.
+async function cambiaFlusso(nome) {
+  try {
+    const resp = await fetch(`${BACKEND}/flusso/${nome}`, { method: 'POST' });
+    if (!resp.ok) {
+      const e = await resp.json().catch(() => ({}));
+      elInfo.textContent = e.errore || 'Questo flusso non è disponibile.';
+      return;
+    }
+    flussoAttivo = nome;
+    await caricaFlussi();
+    await caricaProssimoPuzzle();
+    aggiornaStatisticheDaServer();
+    if (elProgressi && !elProgressi.hidden) aggiornaProgressi();
+  } catch (err) {
+    console.error('Errore cambio flusso:', err);
+  }
+}
+
 // Carica i temi disponibili dal backend e crea i pulsanti, raggruppati per
 // categoria (Tattiche / Matti / Finali).
 async function caricaTemi() {
@@ -265,15 +365,19 @@ async function caricaTemi() {
   }
 }
 
-// Avvia l'allenamento focalizzato su un tema scelto.
+// Avvia l'allenamento focalizzato su un tema scelto (attiva il flusso "temi").
 async function scegliTema(tema) {
   try {
     await fetch(`${BACKEND}/scegli-tema/${tema}`, { method: 'POST' });
+    flussoAttivo = 'temi';  // il backend porta il flusso attivo su "temi"
     // Evidenzio il tema attivo tra i pulsanti (confronto sul valore vero).
     document.querySelectorAll('.tema-btn').forEach((b) => {
       b.classList.toggle('attivo', b.dataset.tema === tema);
     });
-    caricaProssimoPuzzle();
+    await caricaFlussi();  // riallinea il selettore (e mostra i pulsanti tema)
+    await caricaProssimoPuzzle();
+    aggiornaStatisticheDaServer();
+    if (elProgressi && !elProgressi.hidden) aggiornaProgressi();
   } catch (err) {
     console.error('Errore scelta tema:', err);
   }
@@ -283,23 +387,101 @@ async function scegliTema(tema) {
 
 let graficoElo = null;
 let graficoTemi = null;
+let graficoPrimoColpo = null;
 
-// Scarica i dati e ridisegna i due grafici.
+// Scarica i dati e ridisegna grafici, indicatore di tendenza e tabella.
 async function aggiornaProgressi() {
   try {
-    const [rFasce, rTemi] = await Promise.all([
+    const [rFasce, rTemi, rProg] = await Promise.all([
       fetch(`${BACKEND}/storico-fasce`).then((r) => r.json()),
       fetch(`${BACKEND}/statistiche-temi`).then((r) => r.json()),
+      fetch(`${BACKEND}/progressi`).then((r) => r.json()),
     ]);
+    const snapshot = rProg.snapshot || [];
+    // Etichetto la sezione col flusso a cui si riferiscono i dati.
+    if (elProgressiFlusso) {
+      const breve = (FLUSSI_INFO[rProg.flusso] && FLUSSI_INFO[rProg.flusso].breve) || rProg.flusso;
+      elProgressiFlusso.textContent = breve ? `— flusso ${breve}` : '';
+    }
+    // Indicatore "stai migliorando?" e tabella riassuntiva (sempre visibili).
+    mostraIndicatoreTendenza(rProg.tendenza);
+    mostraRiepilogo(rProg.riepilogo);
+    // Grafico 1: % al primo colpo nel tempo (dagli snapshot periodici).
+    disegnaGraficoPrimoColpo(snapshot);
     disegnaGraficoElo(rFasce);
     disegnaGraficoTemi(rTemi.temi || {});
     // Avviso "pochi dati" se non c'e' ancora nulla di significativo.
     const niente = (rFasce.storico_fasce || []).length === 0 &&
+                   snapshot.length === 0 &&
                    Object.keys(rTemi.temi || {}).length === 0;
     elProgressiVuoto.hidden = !niente;
   } catch (err) {
     console.error('Errore caricamento progressi:', err);
   }
+}
+
+// Indicatore onesto "stai migliorando?": freccia + etichetta dalla tendenza Elo.
+function mostraIndicatoreTendenza(tendenza) {
+  if (!elIndicatoreTendenza || !tendenza) return;
+  const classe = `tendenza-${tendenza.direzione}`;  // su | stabile | giu
+  elIndicatoreTendenza.className = `indicatore-tendenza ${classe}`;
+  elIndicatoreTendenza.innerHTML =
+    `<span class="tendenza-freccia">${tendenza.freccia}</span>` +
+    `<span class="tendenza-testo">Stai migliorando? <strong>${tendenza.etichetta}</strong></span>`;
+}
+
+// Tabella riassuntiva dei progressi.
+function mostraRiepilogo(r) {
+  if (!elRiepilogoBox || !r) return;
+  const iniz = r.elo_iniziale;
+  const att = r.elo_attuale;
+  const segno = r.guadagno >= 0 ? '+' : '';
+  const tema = (t) => (t ? `${t.tema.replace(/_/g, ' ')} (${t.percentuale_primo}%)` : '—');
+  elRiepilogoBox.innerHTML = `
+    <table class="riepilogo-tabella">
+      <tbody>
+        <tr><th>Puzzle totali tentati</th><td>${r.tentati_totali}</td></tr>
+        <tr><th>% al primo colpo (storica)</th><td>${r.percentuale_primo_storica}%</td></tr>
+        <tr><th>Fascia Elo iniziale</th><td>${iniz[0]}–${iniz[1]}</td></tr>
+        <tr><th>Fascia Elo attuale</th><td>${att[0]}–${att[1]}</td></tr>
+        <tr><th>Guadagno</th><td>${segno}${r.guadagno} punti</td></tr>
+        <tr><th>Tema migliore</th><td>${tema(r.tema_migliore)}</td></tr>
+        <tr><th>Tema peggiore</th><td>${tema(r.tema_peggiore)}</td></tr>
+      </tbody>
+    </table>`;
+}
+
+// Grafico 1: percentuale di successo al primo colpo nel tempo (serie snapshot).
+function disegnaGraficoPrimoColpo(snapshot) {
+  // Etichetta ogni snapshot col numero di puzzle tentati a quel momento.
+  const etichette = snapshot.map((s) => `${s.tentati}`);
+  const valori = snapshot.map((s) => s.percentuale_primo_colpo);
+  const canvas = document.getElementById('grafico-primo-colpo');
+  if (graficoPrimoColpo) graficoPrimoColpo.destroy();
+  graficoPrimoColpo = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: etichette,
+      datasets: [{
+        label: '% risolti al primo colpo',
+        data: valori,
+        borderColor: '#3a6ea5',
+        backgroundColor: 'rgba(58,110,165,0.2)',
+        tension: 0.2,
+        fill: true,
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true, max: 100, title: { display: true, text: '%' } },
+        x: { title: { display: true, text: 'puzzle tentati' } },
+      },
+      plugins: {
+        title: { display: true, text: '% di successo al primo colpo nel tempo' },
+      },
+    },
+  });
 }
 
 // (a) Fascia Elo nel tempo: ricostruita dallo storico dei cambi di fascia.
@@ -376,6 +558,8 @@ elToggleProg.addEventListener('click', () => {
 // Pulsante "prossimo puzzle".
 elProssimo.addEventListener('click', caricaProssimoPuzzle);
 
-// Avvio: carico i temi e il primo puzzle.
+// Avvio: carico i temi, lo stato dei flussi, le statistiche e il primo puzzle.
 caricaTemi();
+caricaFlussi();
+aggiornaStatisticheDaServer();
 caricaProssimoPuzzle();

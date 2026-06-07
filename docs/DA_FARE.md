@@ -21,6 +21,13 @@ Il sistema **personale** è completo e funzionante end-to-end:
 - Avanzamento automatico dopo un successo (800ms), pausa sugli errori.
 - Query ottimizzata (sottoinsieme 5000 candidati → veloce + vario).
 - Persistenza tra sessioni (fascia, visti, statistiche salvati su `data/stato_sessione.json`).
+- 3 tentativi per puzzle (margine didattico); il "successo" resta SOLO il primo colpo.
+- Snapshot periodici dei progressi (ogni 10 puzzle) con grafico % al primo colpo nel
+  tempo, indicatore di tendenza "stai migliorando?" e tabella riassuntiva.
+- **Flussi separati** (punto 1 della visione estesa): `piano` / `temi` / `errori`, ciascuno
+  con coda, fascia Elo adattiva e statistiche proprie; visti globali; persistenza a tre
+  stati con migrazione dal vecchio file; selettore di flusso nel frontend; flusso `errori`
+  predisposto (non ancora implementato).
 
 ---
 
@@ -72,6 +79,45 @@ Il sistema **personale** è completo e funzionante end-to-end:
   di successo al primo colpo per tema, dalle statistiche-per-tema (punto 7).
 - Backend: nuovo endpoint `/storico-fasce` (storico + fascia attuale) per il grafico (a).
 - I grafici si aggiornano all'apertura della sezione e dopo ogni esito (se aperta).
+
+#### 5b. Metriche e grafici di progresso nel tempo ✅ FATTO
+- **Snapshot periodici**: ogni 10 puzzle tentati il backend salva uno snapshot
+  `{timestamp, tentati, percentuale_primo_colpo, fascia_elo: [min, max]}` nella lista
+  `snapshot_progresso`, **persistita** in `data/stato_sessione.json` e ricaricata all'avvio.
+  Lo snapshot è preso **dopo** l'eventuale ricalibro adattivo, così fotografa la fascia
+  aggiornata. È **solo lettura/conteggio**: non influenza mai la fascia adattiva.
+- **Grafico 1 — "% di successo al primo colpo nel tempo"**: linea costruita dagli snapshot
+  (asse X = puzzle tentati). In interfaccia una nota spiega che la percentuale tende
+  all'**85%** per via della difficoltà adattiva.
+- **Indicatore 2 — "stai migliorando?"**: `_calcola_tendenza` confronta il punto medio della
+  fascia Elo tra il primo e l'ultimo degli ultimi 5 snapshot e mostra ↑ "In crescita",
+  → "Stabile" o ↓ "In calo". È l'indicatore onesto di miglioramento.
+- **Tabella riassuntiva** (`_riepilogo_progressi`): puzzle totali tentati, % al primo colpo
+  storica, fascia Elo iniziale (la prima registrata) vs attuale con il guadagno (+N punti),
+  tema migliore e peggiore dalle statistiche-per-tema.
+- Backend: nuovo endpoint `/progressi` (snapshot + tendenza + riepilogo). Testato in
+  `api/test_server.py` (snapshot, persistenza, non-interferenza, tendenza, riepilogo, endpoint).
+- **Tentativi 2 → 3**: il frontend ora concede 3 tentativi prima di mostrare la soluzione,
+  ma il "successo" per adattività e statistiche resta **solo il primo colpo** (l'esito è
+  `primo` unicamente se `tentativi == 0`; 2°/3° tentativo = `secondo`, margine didattico).
+
+#### 5c. Separazione dei flussi (punto 1 della visione estesa) ✅ FATTO
+- Le due modalità (piano automatico / temi liberi) non condividono più coda, fascia e
+  statistiche: ora ci sono **tre flussi indipendenti** — `piano`, `temi`, `errori` —
+  predisposti fin da subito (il flusso `errori` è solo predisposto: verrà col **punto 6**).
+- Ogni flusso ha la PROPRIA coda, la PROPRIA fascia Elo adattiva (regola dell'85%
+  indipendente) e le PROPRIE statistiche (tentati, % al primo, snapshot storici,
+  statistiche-per-tema, storico fasce). I **visti** sono invece **globali** tra i flussi
+  (scelta progettuale: non rivedere lo stesso puzzle cambiando flusso).
+- Persistenza **v2**: `data/stato_sessione.json` salva i tre flussi separatamente +
+  `flusso_attivo` + `visti` globali. **Retrocompatibile**: il vecchio file a stato singolo
+  viene migrato nel flusso `piano` senza crashare. Aggiunto un **riepilogo complessivo**
+  (totale puzzle sommando i flussi); le statistiche principali restano per-flusso.
+- Endpoint: `GET /flussi`, `POST /flusso/{nome}` (con `errori` → 501); gli endpoint di
+  lettura si riferiscono al flusso attivo. Frontend: selettore di flusso, con statistiche e
+  grafici riferiti al flusso attivo. Dettagli in `docs/VISIONE_ESTESA.md` (punto 1).
+- Testato in `api/test_server.py`: indipendenza fasce tra flussi, persistenza dei tre
+  stati, retrocompatibilità col vecchio file, visti globali, riepilogo complessivo.
 
 ### 6. Tassonomia temi più ricca ✅ FATTO
 - ~~Ora ci sono 8 temi nei pulsanti.~~ Ampliati a **24 temi**, raggruppati in 3 categorie

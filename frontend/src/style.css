@@ -52,6 +52,38 @@ button:hover { background: #386; }
 /* Transizione morbida sui messaggi */
 #info { transition: all 0.2s ease; }
 
+/* --- Selettore dei flussi (piano / temi / errori) --- */
+#flussi {
+  margin: 1rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  align-items: center;
+}
+.flussi-label { font-size: 0.9rem; color: #555; width: 100%; margin-bottom: 0.3rem; }
+.flusso-btn {
+  font-size: 0.9rem;
+  padding: 0.45rem 0.9rem;
+  background: #e3e7ee;
+  color: #2a3550;
+  border: 2px solid transparent;
+  border-radius: 20px;
+}
+.flusso-btn:hover { background: #d3d9e6; }
+.flusso-btn.attivo {
+  background: #3a6ea5;
+  color: white;
+  border-color: #2a527c;
+}
+.flusso-btn.disabilitato {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #ececec;
+  color: #888;
+}
+.flussi-totale { width: 100%; font-size: 0.8rem; color: #777; margin-top: 0.2rem; }
+
 /* --- Pulsanti per la scelta del tema --- */
 #temi {
   margin: 1rem 0;
@@ -96,9 +128,46 @@ button:hover { background: #386; }
 #toggle-progressi { background: #5a6; margin-left: 0.5rem; }
 #toggle-progressi:hover { background: #485; }
 #progressi { margin-top: 2rem; }
+.progressi-flusso { font-size: 0.9rem; font-weight: 400; color: #3a6ea5; }
+.progressi-nota-flusso { font-size: 0.82rem; color: #777; margin: -0.3rem 0 0.8rem; }
 #progressi h2 { font-size: 1.2rem; }
 .grafico-box {
   max-width: 600px;
   margin: 1.5rem auto;
 }
 .progressi-vuoto { color: #888; font-size: 0.9rem; }
+.grafico-nota {
+  max-width: 600px;
+  margin: 0.4rem auto 0;
+  color: #666;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* Indicatore "stai migliorando?" (tendenza della fascia Elo). */
+.indicatore-tendenza {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 600px;
+  margin: 1rem auto;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  background: #f2f2f2;
+}
+.indicatore-tendenza .tendenza-freccia { font-size: 1.6rem; line-height: 1; }
+.indicatore-tendenza.tendenza-su { background: #e6f5ea; color: #1f7a3d; }
+.indicatore-tendenza.tendenza-giu { background: #fbeaea; color: #a33; }
+.indicatore-tendenza.tendenza-stabile { background: #eef0f2; color: #556; }
+
+/* Tabella riassuntiva dei progressi. */
+.riepilogo-box { max-width: 600px; margin: 1rem auto; }
+.riepilogo-tabella { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.riepilogo-tabella th,
+.riepilogo-tabella td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #e3e3e3;
+}
+.riepilogo-tabella th { font-weight: 600; color: #444; width: 55%; }
+.riepilogo-tabella td { color: #222; }

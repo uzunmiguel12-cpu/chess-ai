@@ -8,6 +8,9 @@
   </head>
   <body>
     <h1>Allenamento puzzle personalizzato</h1>
+    <!-- Selettore del flusso di allenamento (piano / temi / errori). -->
+    <div id="flussi"></div>
+    <!-- Pulsanti dei temi: visibili solo quando il flusso "temi" e' attivo. -->
     <div id="temi"></div>
     <div id="stato">Caricamento...</div>
     <div id="board"></div>
@@ -17,7 +20,27 @@
     <button id="toggle-progressi">📊 I miei progressi</button>
 
     <section id="progressi" hidden>
-      <h2>I miei progressi</h2>
+      <h2>I miei progressi <span id="progressi-flusso" class="progressi-flusso"></span></h2>
+      <p class="progressi-nota-flusso">
+        Le statistiche e i grafici qui sotto si riferiscono al <strong>flusso attivo</strong>.
+      </p>
+
+      <!-- Indicatore onesto "stai migliorando?": tendenza della fascia Elo. -->
+      <div id="indicatore-tendenza" class="indicatore-tendenza"></div>
+
+      <!-- Tabella riassuntiva (totali, % storica, Elo iniziale/attuale, temi). -->
+      <div id="riepilogo-box" class="riepilogo-box"></div>
+
+      <!-- Grafico 1: % di successo al primo colpo nel tempo (dagli snapshot). -->
+      <div class="grafico-box">
+        <canvas id="grafico-primo-colpo"></canvas>
+        <p class="grafico-nota">
+          Nota: questa percentuale tende a stabilizzarsi intorno all'<strong>85%</strong>
+          per via della difficoltà adattiva — quando vai bene la fascia Elo sale e i
+          puzzle diventano più difficili, riportando il successo verso quel valore.
+        </p>
+      </div>
+
       <div class="grafico-box"><canvas id="grafico-elo"></canvas></div>
       <div class="grafico-box"><canvas id="grafico-temi"></canvas></div>
       <p id="progressi-vuoto" class="progressi-vuoto" hidden>
