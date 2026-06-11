@@ -16,8 +16,10 @@ Esegui (dalla cartella api, con ambiente attivo):
 
 import os
 import json
+import shutil
 import sqlite3
 import tempfile
+from unittest import mock
 import pytest
 
 import server
@@ -26,6 +28,8 @@ from server import (
     scegli_tema, prossimo_puzzle, progressi, lista_flussi, imposta_flusso,
     _salva_stato, _carica_stato, _valuta_adattivita,
     _crea_snapshot, _calcola_tendenza, _riepilogo_progressi, _riepilogo_complessivo,
+    _carica_puzzle_errori, _riempi_coda_errori,
+    profilo_carenze, _arricchisci_profilo, storico_profili,
 )
 
 
@@ -37,6 +41,7 @@ def _stato_pulito():
         "visti": set(),
         "flussi": {nome: server._nuovo_flusso() for nome in server.FLUSSI},
     })
+    server._PUZZLE_ERRORI = []  # nessun puzzle-errore caricato, salvo dove serve
 
 
 def _flussi():
@@ -45,17 +50,24 @@ def _flussi():
 
 @pytest.fixture
 def ambiente(monkeypatch):
-    """Stato pulito + percorso file-stato temporaneo, niente accessi al vero DB."""
+    """
+    Stato pulito + percorsi su file temporanei, niente accessi al vero DB ne' ai dati
+    reali. Reindirizza anche lo storico profili (Tappa D) e la cartella categorie su
+    una sandbox temporanea, cosi' /profilo non legge ne' scrive i file di progetto.
+    """
     cartella = tempfile.mkdtemp()
     stato_path = os.path.join(cartella, "stato.json")
+    storico_path = os.path.join(cartella, "storico_profili.json")
+    categorie_dir = os.path.join(cartella, "categorie")
     monkeypatch.setattr(server, "PERCORSO_STATO", stato_path)
+    monkeypatch.setattr(server, "PERCORSO_STORICO", storico_path)
+    monkeypatch.setattr(server, "PERCORSO_CATEGORIE", categorie_dir)
     _stato_pulito()
-    yield {"stato_path": stato_path}
+    yield {"stato_path": stato_path, "storico_path": storico_path,
+           "categorie_dir": categorie_dir}
     _stato_pulito()
     try:
-        if os.path.exists(stato_path):
-            os.remove(stato_path)
-        os.rmdir(cartella)
+        shutil.rmtree(cartella)
     except OSError:
         pass
 
@@ -219,7 +231,7 @@ def test_lista_flussi(ambiente):
     assert r["flusso_attivo"] == "piano"
     assert set(r["flussi"].keys()) == set(server.FLUSSI)
     assert r["flussi"]["piano"]["implementato"] is True
-    assert r["flussi"]["errori"]["implementato"] is False
+    assert r["flussi"]["errori"]["implementato"] is True  # implementato col punto 6
     assert "complessivo" in r
 
 
@@ -227,13 +239,6 @@ def test_imposta_flusso_cambia_attivo(ambiente):
     r = imposta_flusso("temi")
     assert server._sessione["flusso_attivo"] == "temi"
     assert r["flusso_attivo"] == "temi"
-
-
-def test_imposta_flusso_errori_non_implementato(ambiente):
-    """Il flusso 'errori' e' predisposto ma non attivabile: 501, attivo invariato."""
-    r = imposta_flusso("errori")
-    assert r.status_code == 501
-    assert server._sessione["flusso_attivo"] == "piano"
 
 
 def test_imposta_flusso_sconosciuto(ambiente):
@@ -697,3 +702,622 @@ def test_progressi_riferito_al_flusso_attivo(ambiente):
     # passando a piano, gli snapshot del temi non si vedono
     server._sessione["flusso_attivo"] = "piano"
     assert len(progressi()["snapshot"]) == 0
+
+
+# --- Flusso "errori" (punto 6) -------------------------------------------
+
+def _errore(pid, rating, lunghezza_soluzione=None):
+    """Un puzzle-errore nel formato della coda (come in data/coda_errori.json).
+
+    Con lunghezza_soluzione impostato simula un puzzle del file ESTESO (multi-mossa).
+    """
+    p = {"id": pid, "fen": "f", "moves": "m1 m2", "rating": rating,
+         "themes": "errore", "motivo_allenamento": "errore",
+         "fase_allenamento": None}
+    if lunghezza_soluzione is not None:
+        p["lunghezza_soluzione"] = lunghezza_soluzione
+    return p
+
+
+def _scrivi_coda_errori(percorso, puzzle):
+    """Scrive un mini coda_errori.json temporaneo."""
+    with open(percorso, "w", encoding="utf-8") as f:
+        json.dump(puzzle, f)
+
+
+def _percorsi_errori(monkeypatch, tmp_path):
+    """Restituisce (esteso, base) come path stringa e li monkeypatcha sul server.
+
+    Entrambi puntano dentro tmp_path: nessun test tocca i file reali in data/.
+    """
+    esteso = str(tmp_path / "coda_errori_estesa.json")
+    base = str(tmp_path / "coda_errori.json")
+    monkeypatch.setattr(server, "PERCORSO_CODA_ERRORI", esteso)
+    monkeypatch.setattr(server, "PERCORSO_CODA_ERRORI_BASE", base)
+    return esteso, base
+
+
+def test_carica_puzzle_errori_preferisce_esteso(ambiente, monkeypatch, tmp_path):
+    """Con esteso e base presenti, _carica_puzzle_errori usa l'ESTESO."""
+    esteso, base = _percorsi_errori(monkeypatch, tmp_path)
+    _scrivi_coda_errori(esteso, [_errore("ext1", 1100, lunghezza_soluzione=2)])
+    _scrivi_coda_errori(base, [_errore("base1", 1100), _errore("base2", 1200)])
+
+    _carica_puzzle_errori()
+    assert {p["id"] for p in server._PUZZLE_ERRORI} == {"ext1"}
+
+
+def test_carica_puzzle_errori_fallback_su_base(ambiente, monkeypatch, tmp_path):
+    """Solo base presente (esteso mancante): ripiega sul base con un warning."""
+    esteso, base = _percorsi_errori(monkeypatch, tmp_path)
+    _scrivi_coda_errori(base, [_errore("base1", 1100), _errore("base2", 1200)])
+
+    with mock.patch.object(server.logger, "warning") as warn:
+        _carica_puzzle_errori()
+    assert {p["id"] for p in server._PUZZLE_ERRORI} == {"base1", "base2"}
+    assert warn.called  # il fallback deve loggare un warning
+
+
+def test_carica_puzzle_errori_solo_esteso(ambiente, monkeypatch, tmp_path):
+    """Solo esteso presente: lo usa direttamente."""
+    esteso, base = _percorsi_errori(monkeypatch, tmp_path)
+    _scrivi_coda_errori(esteso, [_errore("ext1", 1100, lunghezza_soluzione=3)])
+
+    _carica_puzzle_errori()
+    assert {p["id"] for p in server._PUZZLE_ERRORI} == {"ext1"}
+
+
+def test_carica_puzzle_errori_file_mancante(ambiente, monkeypatch, tmp_path):
+    """Nessuno dei due file: lista vuota, nessun crash (flusso esistera' ma vuoto)."""
+    _percorsi_errori(monkeypatch, tmp_path)  # entrambi i path non esistono
+    _carica_puzzle_errori()
+    assert server._PUZZLE_ERRORI == []
+
+
+def test_riempi_coda_errori_pesca_prima_dagli_errori(ambiente, monkeypatch, tmp_path):
+    """Con abbastanza miei errori nella fascia, la coda e' fatta dai miei errori."""
+    # DB con tanti rinforzi disponibili, per essere sicuri che NON vengano usati
+    # quando i miei errori bastano gia'.
+    db = str(tmp_path / "puzzle.db")
+    _crea_db_puzzle(db, [(f"lic{i}", 1100, "fork") for i in range(50)])
+    monkeypatch.setattr(server, "PERCORSO_DB", db)
+    # Tanti errori nella fascia base (1050-1250).
+    server._PUZZLE_ERRORI = [_errore(f"err{i}", 1100)
+                             for i in range(server.PUZZLE_PER_BLOCCO + 5)]
+
+    f = _flussi()["errori"]
+    f["errori_attivo"] = True
+    server._riempi_coda_errori(f)
+
+    assert len(f["coda"]) == server.PUZZLE_PER_BLOCCO
+    # Tutti dai miei errori: nessun rinforzo lichess.
+    assert all(p["origine"] == "errore" for p in f["coda"])
+    assert all(p["motivo_allenamento"] == "errore" for p in f["coda"])
+    assert all(p["id"].startswith("err") for p in f["coda"])
+    # Gli id sono finiti nei visti globali.
+    assert {p["id"] for p in f["coda"]}.issubset(server._sessione["visti"])
+
+
+def test_riempi_coda_errori_completa_con_rinforzi_lichess(ambiente, monkeypatch, tmp_path):
+    """Pochi miei errori nella fascia: la coda si completa con rinforzi Lichess."""
+    db = str(tmp_path / "puzzle.db")
+    _crea_db_puzzle(db, [(f"lic{i}", 1100, "fork") for i in range(50)])
+    monkeypatch.setattr(server, "PERCORSO_DB", db)
+    # Solo 2 miei errori nella fascia: i restanti devono essere rinforzi lichess.
+    server._PUZZLE_ERRORI = [_errore("err0", 1100), _errore("err1", 1200)]
+
+    f = _flussi()["errori"]
+    f["errori_attivo"] = True
+    server._riempi_coda_errori(f)
+
+    miei = [p for p in f["coda"] if p["origine"] == "errore"]
+    rinforzi = [p for p in f["coda"] if p["origine"] == "lichess"]
+    assert len(miei) == 2
+    assert len(rinforzi) > 0
+    assert len(f["coda"]) == server.PUZZLE_PER_BLOCCO
+    # I rinforzi sono marcati correttamente.
+    assert all(p["motivo_allenamento"] == "rinforzo" for p in rinforzi)
+    assert all(p["id"].startswith("lic") for p in rinforzi)
+
+
+def test_riempi_coda_errori_conserva_lunghezza_soluzione(ambiente, monkeypatch, tmp_path):
+    """lunghezza_soluzione (puzzle estesi) sopravvive fino al puzzle in coda.
+
+    I puzzle senza il campo (formato base) ricevono il default 1.
+    """
+    db = str(tmp_path / "puzzle.db")
+    _crea_db_puzzle(db, [(f"lic{i}", 1100, "fork") for i in range(50)])
+    monkeypatch.setattr(server, "PERCORSO_DB", db)
+    server._PUZZLE_ERRORI = [
+        _errore("ext2", 1100, lunghezza_soluzione=2),
+        _errore("ext3", 1150, lunghezza_soluzione=3),
+        _errore("base1", 1200),  # senza il campo -> default 1
+    ]
+
+    f = _flussi()["errori"]
+    f["errori_attivo"] = True
+    server._riempi_coda_errori(f)
+
+    per_id = {p["id"]: p for p in f["coda"] if p["origine"] == "errore"}
+    assert per_id["ext2"]["lunghezza_soluzione"] == 2
+    assert per_id["ext3"]["lunghezza_soluzione"] == 3
+    assert per_id["base1"]["lunghezza_soluzione"] == 1
+
+
+def test_riempi_coda_errori_non_blocca_se_nulla(ambiente, monkeypatch, tmp_path):
+    """Senza miei errori e con DB vuoto la coda resta vuota, ma non si blocca."""
+    db = str(tmp_path / "puzzle.db")
+    _crea_db_puzzle(db, [])
+    monkeypatch.setattr(server, "PERCORSO_DB", db)
+    server._PUZZLE_ERRORI = []
+
+    f = _flussi()["errori"]
+    f["errori_attivo"] = True
+    esaurito = server._riempi_coda_errori(f)
+    assert f["coda"] == []
+    assert esaurito is True  # niente puzzle nuovi -> esaurito
+
+
+def test_imposta_flusso_errori_attiva_e_riempie(ambiente, monkeypatch, tmp_path):
+    """Il flusso 'errori' NON risponde piu' 501: diventa attivo e riempie la coda."""
+    db = str(tmp_path / "puzzle.db")
+    _crea_db_puzzle(db, [(f"lic{i}", 1100, "fork") for i in range(50)])
+    monkeypatch.setattr(server, "PERCORSO_DB", db)
+    server._PUZZLE_ERRORI = [_errore(f"err{i}", 1100) for i in range(10)]
+
+    r = imposta_flusso("errori")
+    assert not hasattr(r, "status_code")  # non e' piu' una risposta d'errore
+    assert r["flusso_attivo"] == "errori"
+    assert server._sessione["flusso_attivo"] == "errori"
+    f = _flussi()["errori"]
+    assert f["errori_attivo"] is True
+    assert len(f["coda"]) > 0
+    # il flusso piano non e' stato toccato
+    assert _flussi()["piano"]["coda"] == []
+
+
+def test_fascia_errori_indipendente_dagli_altri(ambiente, monkeypatch):
+    """La fascia del flusso 'errori' e' indipendente: muoverla non tocca gli altri."""
+    monkeypatch.setattr(server, "_ricostruisci_coda_con_fascia", lambda f: None)
+    fe = _flussi()["errori"]
+    fp_prima = (_flussi()["piano"]["elo_min"], _flussi()["piano"]["elo_max"])
+
+    fe["blocco_conteggio"] = server.BLOCCO_ADATTIVO
+    fe["blocco_primo"] = server.BLOCCO_ADATTIVO  # 100% -> alza
+    assert _valuta_adattivita(fe) == "alzata"
+    assert fe["elo_min"] == server.ELO_MIN + server.PASSO_ELO
+    # piano e temi fermi
+    assert (_flussi()["piano"]["elo_min"], _flussi()["piano"]["elo_max"]) == fp_prima
+    assert _flussi()["temi"]["elo_min"] == server.ELO_MIN
+
+
+def test_persistenza_errori_attivo_e_ricostruzione(ambiente, monkeypatch, tmp_path):
+    """errori_attivo si persiste; dopo un reload la coda errori si ricostruisce."""
+    # Salvo uno stato col flusso errori attivo.
+    _flussi()["errori"]["errori_attivo"] = True
+    _salva_stato()
+    with open(ambiente["stato_path"], "r", encoding="utf-8") as fp:
+        dati = json.load(fp)
+    assert dati["flussi"]["errori"]["errori_attivo"] is True
+
+    # Reload: il flag torna True.
+    _stato_pulito()
+    assert _carica_stato() is True
+    fe = _flussi()["errori"]
+    assert fe["errori_attivo"] is True
+
+    # Ricostruzione della coda errori (come fa _prepara_sessione dopo il reload).
+    db = str(tmp_path / "puzzle.db")
+    _crea_db_puzzle(db, [(f"lic{i}", 1100, "fork") for i in range(50)])
+    monkeypatch.setattr(server, "PERCORSO_DB", db)
+    server._PUZZLE_ERRORI = [_errore(f"err{i}", 1100) for i in range(10)]
+    _riempi_coda_errori(fe)
+    assert len(fe["coda"]) > 0
+
+
+def test_visti_globali_rispettati_da_errori(ambiente, monkeypatch, tmp_path):
+    """Un mio errore gia' visto in un altro flusso non riappare nel flusso errori."""
+    db = str(tmp_path / "puzzle.db")
+    _crea_db_puzzle(db, [])  # nessun rinforzo, isoliamo i soli errori
+    monkeypatch.setattr(server, "PERCORSO_DB", db)
+    server._PUZZLE_ERRORI = [_errore(f"err{i}", 1100) for i in range(6)]
+    # Simulo che alcuni errori siano gia' stati visti altrove.
+    server._sessione["visti"] = {"err0", "err1", "err2"}
+
+    f = _flussi()["errori"]
+    f["errori_attivo"] = True
+    _riempi_coda_errori(f)
+    ids = {p["id"] for p in f["coda"]}
+    assert ids.isdisjoint({"err0", "err1", "err2"})
+
+
+# --- Report delle carenze (punto 2): endpoint /profilo -------------------
+
+def _profilo_finto(**override):
+    """
+    Profilo finto nel formato di costruisci_profilo, per testare l'arricchimento
+    senza toccare i file in data/categorie. Numeri scelti perche' i tassi siano
+    distinguibili: 1000 mosse, 100 errori gravi.
+
+    Tattica: pezzo_in_presa 40, forchetta 30 (rilevanti), inchiodatura 6 (al 6%,
+    sopra soglia), infilata 0.1% (sotto soglia), non_tattico 24.
+    """
+    p = {
+        "giocatore": "Tester",
+        "partite_analizzate": 10,
+        "mosse_totali": 1000,
+        "errori_gravi_totali": 100,
+        "conteggio_gravita": {"best": 500, "excellent": 200, "good": 140,
+                              "inaccuracy": 60, "mistake": 60, "blunder": 40},
+        "mosse_per_fase": {"apertura": 300, "mediogioco": 500, "finale": 200},
+        "errori_per_fase": {"apertura": 30, "mediogioco": 50, "finale": 20},
+        # Tre fasi tutte al 10%: divario nullo -> fasi vicine.
+        "tasso_errore_per_fase": {"apertura": 10.0, "mediogioco": 10.0, "finale": 10.0},
+        "debolezza_principale": "mediogioco",
+        "conteggio_tattico": {"pezzo_in_presa": 40, "forchetta": 30,
+                              "inchiodatura": 6, "infilata": 0, "non_tattico": 24},
+        "percentuali_tattico": {"pezzo_in_presa": 40.0, "forchetta": 30.0,
+                                "inchiodatura": 6.0, "infilata": 0.1,
+                                "non_tattico": 24.0},
+        "tattico_per_fase": {
+            "pezzo_in_presa": {"apertura": 10, "mediogioco": 25, "finale": 5},
+            "forchetta": {"apertura": 5, "mediogioco": 20, "finale": 5},
+            "inchiodatura": {"mediogioco": 6},
+            "infilata": {},
+        },
+    }
+    p.update(override)
+    return p
+
+
+def test_profilo_endpoint_arricchisce(ambiente, monkeypatch):
+    """L'endpoint restituisce il profilo coi campi arricchiti, senza perdere quelli base."""
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: _profilo_finto())
+    r = profilo_carenze()
+    for campo in ("tasso_su_mosse_per_tipo", "ogni_quante_mosse_per_tipo",
+                  "temi_rilevanti", "temi_non_rilevanti", "sintesi",
+                  "fasi_divario_piccolo"):
+        assert campo in r
+    # I campi originali del profilo restano presenti.
+    assert r["mosse_totali"] == 1000
+    assert r["debolezza_principale"] == "mediogioco"
+
+
+def test_profilo_assente_404(ambiente, monkeypatch):
+    """Senza partite del giocatore, l'endpoint risponde 404 invece di crashare."""
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: None)
+    r = profilo_carenze()
+    assert r.status_code == 404
+
+
+def test_profilo_tasso_su_mosse_totali(ambiente, monkeypatch):
+    """Il tasso ha come denominatore le MOSSE TOTALI, non gli errori gravi."""
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: _profilo_finto())
+    r = profilo_carenze()
+    t = r["tasso_su_mosse_per_tipo"]
+    # 40 pezzi in presa su 1000 mosse = 4.0% (NON 40/100 = 40%, che sarebbe sugli errori).
+    assert t["pezzo_in_presa"] == 4.0
+    assert t["forchetta"] == 3.0
+    assert t["non_tattico"] == 2.4
+    # "una ogni ~N mosse" usa lo stesso denominatore (mosse_totali / conteggio).
+    assert r["ogni_quante_mosse_per_tipo"]["pezzo_in_presa"] == 25  # round(1000/40)
+    assert r["ogni_quante_mosse_per_tipo"]["infilata"] is None      # conteggio 0
+    assert r["tasso_su_mosse_denominatore"] == "mosse_totali"
+
+
+def test_profilo_soglia_rilevanza_classifica(ambiente, monkeypatch):
+    """Un tema al 6% e' rilevante; uno allo 0.1% e' rumore (non rilevante)."""
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: _profilo_finto())
+    r = profilo_carenze()
+    assert "inchiodatura" in r["temi_rilevanti"]      # 6% >= soglia 5%
+    assert "infilata" in r["temi_non_rilevanti"]      # 0.1% < soglia
+    assert "pezzo_in_presa" in r["temi_rilevanti"]
+    assert "forchetta" in r["temi_rilevanti"]
+
+
+def test_profilo_sintesi_onesta(ambiente, monkeypatch):
+    """La sintesi cita il tema dominante e dichiara la quota non_tattico posizionale."""
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: _profilo_finto())
+    r = profilo_carenze()
+    s = r["sintesi"]
+    assert "pezzo in presa" in s              # tema dominante (tasso piu' alto)
+    assert "24.0%" in s                       # quota non_tattico dichiarata
+    assert "posizional" in s.lower()          # marcata come posizionale/strategica
+
+
+def test_profilo_fasi_divario_piccolo_true(ambiente, monkeypatch):
+    """Tassi per fase vicini (10/10/10): fasi_divario_piccolo e' True."""
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: _profilo_finto())
+    r = profilo_carenze()
+    assert r["fasi_divario_piccolo"] is True
+    assert r["fasi_divario"] == 0.0
+
+
+def test_profilo_fasi_divario_grande_false(ambiente, monkeypatch):
+    """Quando una fase spicca (forbice >= 10 punti), fasi_divario_piccolo e' False."""
+    p = _profilo_finto(
+        tasso_errore_per_fase={"apertura": 5.0, "mediogioco": 25.0, "finale": 8.0})
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: p)
+    r = profilo_carenze()
+    assert r["fasi_divario_piccolo"] is False
+    assert r["fasi_divario"] == 20.0
+
+
+# --- Piano di studio personalizzato (Tappa C) ---------------------------
+
+def test_piano_studio_solo_temi_rilevanti(ambiente, monkeypatch):
+    """Il piano contiene SOLO i temi rilevanti: il 6% c'e', lo 0.1% (infilata) no."""
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: _profilo_finto())
+    r = profilo_carenze()
+    temi = [v["tema"] for v in r["piano_studio"]["voci"]]
+    assert "pezzo_in_presa" in temi
+    assert "forchetta" in temi
+    assert "inchiodatura" in temi          # 6% >= soglia
+    assert "infilata" not in temi          # 0.1% < soglia: fuori dal piano
+    assert "non_tattico" not in temi       # posizionale, mai nel piano
+
+
+def test_piano_studio_pesi_relativi(ambiente, monkeypatch):
+    """Il dominante ha peso_relativo 1.0 e priorita' 'alta'; gli altri frazioni corrette."""
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: _profilo_finto())
+    r = profilo_carenze()
+    voci = {v["tema"]: v for v in r["piano_studio"]["voci"]}
+    # Dominante: tasso 4.0% -> peso 1.0, priorita' alta.
+    assert voci["pezzo_in_presa"]["peso_relativo"] == 1.0
+    assert voci["pezzo_in_presa"]["priorita"] == "alta"
+    # forchetta: 3.0/4.0 = 0.75 -> peso 0.8, sopra 0.5 -> media.
+    assert voci["forchetta"]["peso_relativo"] == 0.8
+    assert voci["forchetta"]["priorita"] == "media"
+    # inchiodatura: 0.6/4.0 = 0.15 -> sotto 0.5 -> bassa.
+    assert voci["inchiodatura"]["priorita"] == "bassa"
+    # La prima voce e' il dominante (lista ordinata dal piu' pesante).
+    assert r["piano_studio"]["voci"][0]["tema"] == "pezzo_in_presa"
+    # Ogni voce porta il tema-libero per agganciare il flusso temi.
+    assert voci["pezzo_in_presa"]["tema_libero"] == "pezzo_in_presa"
+
+
+def test_piano_studio_nota_posizionale(ambiente, monkeypatch):
+    """La nota_posizionale cita la percentuale non_tattico reale (24.0%)."""
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: _profilo_finto())
+    r = profilo_carenze()
+    nota = r["piano_studio"]["nota_posizionale"]
+    assert "24.0%" in nota
+    assert "posizional" in nota.lower()
+
+
+def test_piano_studio_nessun_tema_rilevante(ambiente, monkeypatch):
+    """Caso limite: nessun tema sopra soglia -> piano vuoto, niente crash."""
+    p = _profilo_finto(
+        percentuali_tattico={"pezzo_in_presa": 2.0, "forchetta": 1.0,
+                             "inchiodatura": 0.5, "infilata": 0.1,
+                             "non_tattico": 96.4})
+    monkeypatch.setattr(server, "costruisci_profilo", lambda *a, **k: p)
+    r = profilo_carenze()
+    piano = r["piano_studio"]
+    assert piano["voci"] == []
+    assert piano["progressione"] == ""
+    assert "96.4%" in piano["nota_posizionale"]   # cita comunque la quota posizionale
+
+
+# --- Snapshot nel tempo + confronto "nuove vs storico" (Tappa D) ----------
+# Test di INTEGRAZIONE: usano il vero costruisci_profilo su file partita finti nella
+# cartella categorie temporanea (ambiente). GIOCATORE e' il giocatore reale del server.
+
+def _mossa_finta(gravita, tipo=None, fase="mediogioco"):
+    """Una mossa minima nel formato che costruisci_profilo si aspetta."""
+    return {"gravita": gravita, "fase": fase, "tipo_tattico": tipo}
+
+
+def _scrivi_partite(cartella, prefisso, quante, forchetta_per_partita,
+                    mosse_giocatore=10):
+    """
+    Scrive `quante` file partita del GIOCATORE: ogni partita ha
+    `forchetta_per_partita` errori gravi di tipo 'forchetta' sulle `mosse_giocatore`
+    mosse del giocatore (il resto 'best'). Le mosse dell'avversario sono 'best'.
+    """
+    os.makedirs(cartella, exist_ok=True)
+    for k in range(quante):
+        mosse = []
+        for i in range(mosse_giocatore):
+            if i < forchetta_per_partita:
+                mosse.append(_mossa_finta("blunder", "forchetta"))
+            else:
+                mosse.append(_mossa_finta("best"))
+            mosse.append(_mossa_finta("best"))  # mossa dell'avversario (indici dispari)
+        p = {"bianco": server.GIOCATORE, "nero": "Avv", "risultato": "1-0",
+             "mosse": mosse}
+        with open(os.path.join(cartella, f"{prefisso}_{k:03}.json"),
+                  "w", encoding="utf-8") as f:
+            json.dump(p, f)
+
+
+def _leggi_storico(ambiente):
+    with open(ambiente["storico_path"], "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_tappa_d_primo_snapshot_confronto_null(ambiente):
+    """Primo avvio: crea lo snapshot-base, confronto None, nessun confronto possibile."""
+    _scrivi_partite(ambiente["categorie_dir"], "vecchia", 10, forchetta_per_partita=2)
+    r = profilo_carenze()
+    assert r["confronto"] is None
+    storico = _leggi_storico(ambiente)
+    assert len(storico["snapshot"]) == 1
+    assert storico["ultimo_confronto"] is None
+
+
+def test_tappa_d_nessun_file_nuovo_non_duplica(ambiente):
+    """Senza file nuovi: nessuno snapshot duplicato e confronto invariato (None)."""
+    _scrivi_partite(ambiente["categorie_dir"], "vecchia", 10, forchetta_per_partita=2)
+    profilo_carenze()                       # crea la base
+    r = profilo_carenze()                   # secondo giro, nulla di nuovo
+    assert r["confronto"] is None
+    assert len(_leggi_storico(ambiente)["snapshot"]) == 1   # niente duplicati
+
+
+def test_tappa_d_anti_diluizione(ambiente):
+    """
+    IL TEST PIU' IMPORTANTE: il tasso_recente riflette SOLO le partite nuove, non il
+    cumulativo diluito. Storico 'pessimo' su forchetta (60%), nuove 'buone' (10%):
+    il confronto deve dire 10% recente (non ~35% del cumulativo) e tendenza migliorato.
+    """
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 60, forchetta_per_partita=6)  # storico: 60%
+    profilo_carenze()                                            # snapshot-base
+    _scrivi_partite(cat, "nuova", 60, forchetta_per_partita=1)   # nuove: 10%
+    r = profilo_carenze()
+
+    confronto = r["confronto"]
+    assert confronto is not None
+    assert confronto["partite_nuove"] == 60
+    assert confronto["affidabile"] is True                       # 60 >= guardrail 50
+    voce_forchetta = next(v for v in confronto["voci"] if v.get("tema") == "forchetta")
+    assert voce_forchetta["tasso_storico"] == 60.0
+    # ANTI-DILUIZIONE: 10% (solo nuove), NON ~35% del cumulativo 420/1200.
+    assert voce_forchetta["tasso_recente"] == 10.0
+    assert voce_forchetta["tendenza"] == "migliorato"
+    # La voce del piano e' annotata con la tendenza del confronto.
+    voce_piano = next(v for v in r["piano_studio"]["voci"] if v["tema"] == "forchetta")
+    assert voce_piano["tendenza"] == "migliorato"
+
+
+def test_tappa_d_guardrail_poche_partite(ambiente):
+    """< GUARDRAIL_PARTITE partite nuove -> affidabile False + avvertenza presente."""
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 60, forchetta_per_partita=6)
+    profilo_carenze()
+    _scrivi_partite(cat, "nuova", 10, forchetta_per_partita=1)   # solo 10 < 50
+    r = profilo_carenze()
+    assert r["confronto"]["affidabile"] is False
+    assert "avvertenza" in r["confronto"]
+    assert "10" in r["confronto"]["avvertenza"]
+
+
+def test_tappa_d_guardrail_abbastanza_partite(ambiente):
+    """>= GUARDRAIL_PARTITE partite nuove -> affidabile True, niente avvertenza."""
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 60, forchetta_per_partita=6)
+    profilo_carenze()
+    _scrivi_partite(cat, "nuova", 50, forchetta_per_partita=1)   # esattamente 50
+    r = profilo_carenze()
+    assert r["confronto"]["affidabile"] is True
+    assert "avvertenza" not in r["confronto"]
+
+
+def test_tappa_d_tendenza_stabile(ambiente):
+    """Stesso tasso tra storico e nuove (delta < SOGLIA_STABILE) -> 'stabile'."""
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 50, forchetta_per_partita=3)  # 30%
+    profilo_carenze()
+    _scrivi_partite(cat, "nuova", 50, forchetta_per_partita=3)    # 30%, delta 0
+    r = profilo_carenze()
+    voce = next(v for v in r["confronto"]["voci"] if v.get("tema") == "forchetta")
+    assert voce["delta"] == 0.0
+    assert voce["tendenza"] == "stabile"
+
+
+def test_tappa_d_tendenza_peggiorato(ambiente):
+    """Tasso in salita oltre la soglia -> 'peggiorato'."""
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 50, forchetta_per_partita=1)  # 10%
+    profilo_carenze()
+    _scrivi_partite(cat, "nuova", 50, forchetta_per_partita=5)    # 50%
+    r = profilo_carenze()
+    voce = next(v for v in r["confronto"]["voci"] if v.get("tema") == "forchetta")
+    assert voce["tendenza"] == "peggiorato"
+    assert voce["delta"] > 0
+
+
+# --- Grafico storico dell'evoluzione: tassi DEL PERIODO (raffinamento punto 4) ---
+# Lo snapshot del periodo salva i tassi delle SOLE partite nuove (anti-diluizione);
+# /storico-profili li espone come serie temporale, saltando lo snapshot base.
+
+def test_snapshot_periodo_salva_campi_periodo(ambiente):
+    """Con partite nuove, lo snapshot porta i campi periodo_* dalle sole nuove."""
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 60, forchetta_per_partita=6)
+    profilo_carenze()                                           # snapshot-base
+    _scrivi_partite(cat, "nuova", 60, forchetta_per_partita=1)  # 60 partite nuove
+    profilo_carenze()
+    snap = _leggi_storico(ambiente)["snapshot"][-1]             # lo snapshot-periodo
+    assert snap["periodo_partite"] == 60
+    assert snap["periodo_affidabile"] is True                   # 60 >= guardrail 50
+    assert "periodo_tasso_su_mosse_per_tipo" in snap
+    assert "periodo_tasso_errore_per_fase" in snap
+
+
+def test_snapshot_base_non_ha_campi_periodo(ambiente):
+    """Lo snapshot base (primo) NON rappresenta un periodo: niente campi periodo_*."""
+    _scrivi_partite(ambiente["categorie_dir"], "vecchia", 10, forchetta_per_partita=2)
+    profilo_carenze()
+    base = _leggi_storico(ambiente)["snapshot"][0]
+    assert "periodo_partite" not in base
+    assert "periodo_tasso_su_mosse_per_tipo" not in base
+    assert "periodo_tasso_errore_per_fase" not in base
+    assert "periodo_affidabile" not in base
+
+
+def test_storico_profili_solo_base_ha_dati_false(ambiente):
+    """Con il solo snapshot base, niente punti-periodo: ha_dati False, punti vuoti."""
+    _scrivi_partite(ambiente["categorie_dir"], "vecchia", 10, forchetta_per_partita=2)
+    profilo_carenze()
+    r = storico_profili()
+    assert r["ha_dati"] is False
+    assert r["punti"] == []
+
+
+def test_storico_profili_salta_base_e_segnala_dati(ambiente):
+    """Con >=1 periodo: /storico-profili salta il base e ha_dati True (1 solo punto)."""
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 60, forchetta_per_partita=6)
+    profilo_carenze()                                           # base
+    _scrivi_partite(cat, "nuova", 60, forchetta_per_partita=1)
+    profilo_carenze()                                           # periodo 1
+    r = storico_profili()
+    assert r["ha_dati"] is True
+    assert len(r["punti"]) == 1                                 # il base e' saltato
+    assert r["punti"][0]["periodo_partite"] == 60
+
+
+def test_storico_profili_punti_sono_del_periodo_non_cumulativi(ambiente):
+    """
+    TEST ANTI-DILUIZIONE DEL GRAFICO: i punti riflettono il tasso DEL PERIODO (sole
+    partite nuove), non il cumulativo diluito. Storico 60% su forchetta, nuove 10%:
+    il punto deve valere 10 (non ~35% del cumulativo).
+    """
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 60, forchetta_per_partita=6)  # storico 60%
+    profilo_carenze()
+    _scrivi_partite(cat, "nuova", 60, forchetta_per_partita=1)    # periodo 10%
+    profilo_carenze()
+    r = storico_profili()
+    punto = r["punti"][0]
+    assert punto["tasso_tipo"]["forchetta"] == 10.0              # periodo, non ~35%
+
+
+def test_storico_profili_due_periodi_ordinati(ambiente):
+    """Due periodi nuovi -> due punti, in ordine temporale, ciascuno coi propri tassi."""
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 60, forchetta_per_partita=6)
+    profilo_carenze()                                            # base
+    _scrivi_partite(cat, "primo", 60, forchetta_per_partita=5)   # periodo 1: 50%
+    profilo_carenze()
+    _scrivi_partite(cat, "secondo", 60, forchetta_per_partita=1)  # periodo 2: 10%
+    profilo_carenze()
+    r = storico_profili()
+    assert len(r["punti"]) == 2
+    assert r["punti"][0]["tasso_tipo"]["forchetta"] == 50.0
+    assert r["punti"][1]["tasso_tipo"]["forchetta"] == 10.0
+    timestamps = [p["timestamp"] for p in r["punti"]]
+    assert timestamps == sorted(timestamps)
+
+
+def test_storico_profili_periodo_poche_partite_non_affidabile(ambiente):
+    """Periodo con poche partite (< guardrail) -> punto marcato affidabile False."""
+    cat = ambiente["categorie_dir"]
+    _scrivi_partite(cat, "vecchia", 60, forchetta_per_partita=6)
+    profilo_carenze()
+    _scrivi_partite(cat, "nuova", 10, forchetta_per_partita=1)   # solo 10 < 50
+    profilo_carenze()
+    r = storico_profili()
+    assert r["punti"][0]["affidabile"] is False

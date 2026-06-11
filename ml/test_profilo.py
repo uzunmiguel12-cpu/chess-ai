@@ -127,3 +127,54 @@ def test_inchiodatura_conteggiata():
         assert prof["conteggio_tattico"].get("non_tattico", 0) == 0
     finally:
         shutil.rmtree(cartella)
+
+
+# --- Parametro solo_file (anti-diluizione, Tappa D) ---
+
+@pytest.fixture
+def cartella_due_file():
+    """
+    Due file partita con tassi DIVERSI, per testare solo_file:
+      - vecchia.json: 1 errore su 10 mosse del giocatore (10%)
+      - nuova.json:   5 errori su 10 mosse del giocatore (50%)
+    """
+    cartella = tempfile.mkdtemp()
+
+    def partita(n_errori):
+        mosse = []
+        for i in range(10):
+            mosse.append(_m("blunder" if i < n_errori else "best", "mediogioco",
+                            "forchetta" if i < n_errori else None))
+            mosse.append(_m("best", "mediogioco"))  # mossa dell'avversario
+        return {"bianco": "Miguel", "nero": "Avv", "risultato": "1-0", "mosse": mosse}
+
+    with open(os.path.join(cartella, "vecchia.json"), "w", encoding="utf-8") as f:
+        json.dump(partita(1), f)
+    with open(os.path.join(cartella, "nuova.json"), "w", encoding="utf-8") as f:
+        json.dump(partita(5), f)
+    yield cartella
+    shutil.rmtree(cartella)
+
+
+def test_solo_file_default_invariato(cartella_due_file):
+    """Senza solo_file considera tutti i file: 6 errori su 20 mosse del giocatore."""
+    p = costruisci_profilo("Miguel", cartella_due_file)
+    assert p["partite_analizzate"] == 2
+    assert p["mosse_totali"] == 20
+    assert p["errori_gravi_totali"] == 6
+
+
+def test_solo_file_filtra(cartella_due_file):
+    """Con solo_file usa SOLO i file indicati: la sola 'nuova' ha tasso 50%."""
+    p = costruisci_profilo("Miguel", cartella_due_file, solo_file=["nuova.json"])
+    assert p["partite_analizzate"] == 1
+    assert p["mosse_totali"] == 10
+    assert p["errori_gravi_totali"] == 5
+    assert p["tasso_errore_per_fase"]["mediogioco"] == 50.0
+
+
+def test_solo_file_ignora_inesistenti(cartella_due_file):
+    """Nomi non presenti in solo_file si ignorano senza crashare."""
+    p = costruisci_profilo("Miguel", cartella_due_file,
+                           solo_file=["nuova.json", "mai_esistita.json"])
+    assert p["partite_analizzate"] == 1

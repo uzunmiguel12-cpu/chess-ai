@@ -15,7 +15,8 @@
  * Flussi: l'allenamento e' diviso in tre flussi indipendenti (piano / temi /
  * errori), ciascuno con coda, fascia Elo e statistiche proprie. L'utente sceglie
  * il flusso dal selettore in alto; statistiche e grafici si riferiscono al flusso
- * attivo. Il flusso "errori" e' predisposto ma non ancora implementato.
+ * attivo. Ogni puzzle porta un campo "origine" ("errore" per i miei errori,
+ * "lichess" per i puzzle del DB); nel flusso "errori" lo mostriamo come badge.
  */
 
 import { Chess } from 'chess.js';
@@ -54,12 +55,23 @@ let ultimaMossa = null;    // [from, to] dell'ultima mossa, per evidenziarla
 const elBoard = document.getElementById('board');
 const elInfo = document.getElementById('info');
 const elStato = document.getElementById('stato');
+const elBadgeOrigine = document.getElementById('badge-origine');
 const elProssimo = document.getElementById('prossimo');
 const elStats = document.getElementById('stats');
 const elTemi = document.getElementById('temi');
 const elFlussi = document.getElementById('flussi');
 const elToggleProg = document.getElementById('toggle-progressi');
 const elProgressi = document.getElementById('progressi');
+const elToggleCarenze = document.getElementById('toggle-carenze');
+const elCarenze = document.getElementById('carenze');
+const elCarenzeSintesi = document.getElementById('carenze-sintesi');
+const elCarenzeCome = document.getElementById('carenze-come');
+const elCarenzeDove = document.getElementById('carenze-dove');
+const elCarenzeQuanto = document.getElementById('carenze-quanto');
+const elCarenzePiano = document.getElementById('carenze-piano');
+const elCarenzeConfronto = document.getElementById('carenze-confronto');
+const elEvoluzioneVuoto = document.getElementById('evoluzione-vuoto');
+const elEvoluzioneGrafici = document.getElementById('evoluzione-grafici');
 const elProgressiVuoto = document.getElementById('progressi-vuoto');
 const elIndicatoreTendenza = document.getElementById('indicatore-tendenza');
 const elRiepilogoBox = document.getElementById('riepilogo-box');
@@ -73,6 +85,20 @@ function uciToMove(uci) {
 // Spezza una mossa UCI in [from, to] per l'evidenziazione.
 function uciCaselle(uci) {
   return [uci.slice(0, 2), uci.slice(2, 4)];
+}
+
+// Converte una mossa UCI nella notazione SAN leggibile, partendo dalla
+// posizione corrente. Lavora su una copia (Chess(fen)) per non sporcare lo
+// stato del puzzle. Se il SAN non si ottiene, ripiega sull'UCI grezzo.
+function uciToSan(uci) {
+  try {
+    const tmp = new Chess(chess.fen());
+    const m = tmp.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: 'q' });
+    if (m && m.san) return m.san;
+  } catch (e) {
+    // posizione/mossa non valida: uso il fallback UCI sotto.
+  }
+  return uci;
 }
 
 // Calcola le mosse legali per chessground (mappa casa -> case raggiungibili).
@@ -109,12 +135,39 @@ function aggiornaBoard() {
   });
 }
 
+// Mostra un badge sull'origine del puzzle. Nel flusso "errori" distingue i miei
+// errori (📍) dai rinforzi Lichess (♟); negli altri flussi resta nascosto (i loro
+// puzzle sono tutti "lichess" e il badge non aggiunge nulla).
+function mostraBadgeOrigine(puzzle, flusso) {
+  if (!elBadgeOrigine) return;
+  if (flusso !== 'errori') {
+    elBadgeOrigine.hidden = true;
+    return;
+  }
+  const origine = puzzle.origine || 'lichess';
+  if (origine === 'errore') {
+    // I puzzle estesi richiedono piu' mosse: lo segnaliamo accanto al badge cosi'
+    // l'utente sa che non basta una singola mossa. lunghezza_soluzione == 1 -> base.
+    const lunghezza = puzzle.lunghezza_soluzione || 1;
+    elBadgeOrigine.textContent = lunghezza > 1
+      ? `📍 Tuo errore · 🧩 Combinazione (${lunghezza} mosse)`
+      : '📍 Tuo errore';
+    elBadgeOrigine.className = 'badge-origine badge-errore';
+  } else {
+    elBadgeOrigine.textContent = '♟ Rinforzo Lichess';
+    elBadgeOrigine.className = 'badge-origine badge-lichess';
+  }
+  elBadgeOrigine.hidden = false;
+}
+
 // Chiede un nuovo puzzle al backend e lo imposta.
 async function caricaProssimoPuzzle() {
   elInfo.textContent = 'Carico il prossimo puzzle...';
   tentativi = 0;
   esitoInviato = false;
   ultimaMossa = null;  // azzero: non deve restare l'evidenziazione del puzzle precedente
+  if (board) board.setShapes([]);  // pulisco eventuali frecce-soluzione del puzzle precedente
+  if (elBadgeOrigine) elBadgeOrigine.hidden = true;
   try {
     const risposta = await fetch(`${BACKEND}/prossimo-puzzle`);
     const dati = await risposta.json();
@@ -125,6 +178,7 @@ async function caricaProssimoPuzzle() {
     }
 
     puzzleCorrente = dati.puzzle;
+    mostraBadgeOrigine(puzzleCorrente, dati.flusso);
     const mosse = puzzleCorrente.moves.split(' ');
 
     // Carico la posizione e applico la PRIMA mossa (avversario).
@@ -148,6 +202,9 @@ async function caricaProssimoPuzzle() {
         animation: { enabled: true, duration: 250 },
         highlight: { lastMove: true, check: true },
         movable: { color: orient, dests: mosseLegali(), free: false },
+        // Abilito il sistema "drawable" nativo: lo usiamo per disegnare la
+        // freccia-soluzione sull'errore (brush di default: green/red/blue/yellow).
+        drawable: { enabled: true, brushes: {} },
         events: { move: onMossaGiocatore },
       });
     } else {
@@ -254,9 +311,15 @@ function onMossaGiocatore(orig, dest) {
     // Mossa sbagliata.
     tentativi += 1;
     if (tentativi >= MAX_TENTATIVI) {
-      // Mostro la soluzione e fermo il puzzle.
-      elInfo.innerHTML = `<span class="ko">❌ La mossa giusta era ${soluzione[0]}. Passa al prossimo.</span>`;
+      // Mostro la soluzione e fermo il puzzle. Mostro SOLO la prima mossa
+      // (soluzione[0]) anche per i puzzle multi-mossa: è chiaro e sufficiente.
+      const sol = soluzione[0];
+      const san = uciToSan(sol);  // SAN leggibile (fallback su UCI grezzo).
+      elInfo.innerHTML = `<span class="ko">❌ La mossa giusta era ${san}. Guarda la freccia. Passa al prossimo.</span>`;
       aggiornaBoard();
+      // Disegno la freccia-soluzione con il sistema nativo di chessground.
+      const [orig, dest] = uciCaselle(sol);
+      board.setShapes([{ orig, dest, brush: 'green' }]);
       board.set({ movable: { color: undefined } });
       if (!esitoInviato) {
         inviaEsito('fallito');
@@ -549,10 +612,372 @@ function disegnaGraficoTemi(temi) {
   });
 }
 
+// --- Sezione "Le mie carenze" (REPORT DELLE CARENZE, punto 2) ---
+// Diagnosi onesta dal profilo: NON e' legata al flusso attivo, e' il quadro
+// complessivo di come e dove sbaglia il giocatore (dalle partite analizzate).
+
+const FASI_CARENZE = ['apertura', 'mediogioco', 'finale'];
+// Ordine "stile Chess.com" della qualita' delle mosse (best -> blunder).
+const QUALITA_ORDINE = ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'];
+
+// Scarica il profilo arricchito e ridisegna la sezione carenze.
+async function aggiornaCarenze() {
+  try {
+    const r = await fetch(`${BACKEND}/profilo`);
+    if (!r.ok) {
+      elCarenzeSintesi.textContent =
+        'Profilo non ancora disponibile: analizza e arricchisci prima le partite.';
+      elCarenzeCome.innerHTML = '';
+      elCarenzeDove.innerHTML = '';
+      elCarenzeQuanto.innerHTML = '';
+      elCarenzePiano.innerHTML = '';
+      elCarenzeConfronto.innerHTML = '';
+      return;
+    }
+    const p = await r.json();
+    renderCarenze(p);
+  } catch (err) {
+    elCarenzeSintesi.textContent = '⚠️ Errore nel contattare il server (localhost:8000).';
+    console.error('Errore caricamento carenze:', err);
+  }
+}
+
+// Etichetta leggibile per un tipo tattico/fase (underscore -> spazio).
+function etichettaCarenza(nome) {
+  return (nome || '').replace(/_/g, ' ');
+}
+
+// Disegna le quattro parti: sintesi, COME, DOVE, QUANTO.
+function renderCarenze(p) {
+  // 1. Sintesi in evidenza (la frase-diagnosi).
+  elCarenzeSintesi.textContent = p.sintesi || '';
+
+  // 2. COME sbagli: tipi tattici per tasso sulle mosse, decrescente.
+  const tassi = p.tasso_su_mosse_per_tipo || {};
+  const ogni = p.ogni_quante_mosse_per_tipo || {};
+  const conteggi = p.conteggio_tattico || {};
+  const rilevanti = new Set(p.temi_rilevanti || []);
+  const tipi = Object.keys(tassi)
+    .filter((t) => t !== 'non_tattico')
+    .sort((a, b) => (tassi[b] || 0) - (tassi[a] || 0));
+  let righeCome = tipi.map((t) => {
+    const nonRil = !rilevanti.has(t);
+    const n = conteggi[t] || 0;
+    const o = ogni[t];
+    const quanto = o ? `una ogni ~${o} mosse` : 'mai osservato';
+    const tag = nonRil
+      ? '<span class="carenza-tag">non è un problema per te</span>' : '';
+    return `<li class="carenza-item${nonRil ? ' non-rilevante' : ''}">
+        <span class="carenza-nome">${etichettaCarenza(t)}</span>
+        <span class="carenza-num">${n} errori · ${tassi[t]}% delle mosse · ${quanto}</span>
+        ${tag}
+      </li>`;
+  }).join('');
+  // Quota non_tattico: errori posizionali non coperti dai puzzle tattici.
+  const percNonTatt = (p.percentuali_tattico || {}).non_tattico || 0;
+  const tassoNonTatt = tassi.non_tattico || 0;
+  righeCome += `<li class="carenza-item non-tattico">
+      <span class="carenza-nome">errori posizionali</span>
+      <span class="carenza-num">${percNonTatt}% degli errori gravi · ${tassoNonTatt}% delle mosse</span>
+      <span class="carenza-tag">non coperti dai puzzle tattici</span>
+    </li>`;
+  elCarenzeCome.innerHTML =
+    `<h3>Come sbagli</h3><ul class="carenza-lista">${righeCome}</ul>`;
+
+  // 3. DOVE sbagli: le tre fasi, evidenziando la debolezza principale.
+  const tassoFase = p.tasso_errore_per_fase || {};
+  const dom = p.debolezza_principale;
+  const righeDove = FASI_CARENZE.map((f) => {
+    const principale = f === dom;
+    const tasso = (tassoFase[f] != null) ? `${tassoFase[f]}%` : '—';
+    const nota = principale ? ' · debolezza principale' : '';
+    return `<li class="carenza-item${principale ? ' carenza-principale' : ''}">
+        <span class="carenza-nome">${f}</span>
+        <span class="carenza-num">${tasso} di errori${nota}</span>
+      </li>`;
+  }).join('');
+  const notaDivario = p.fasi_divario_piccolo
+    ? '<p class="carenza-nota-piccola">I tassi delle tre fasi sono vicini tra loro: '
+      + 'nessuna fase è drammaticamente peggiore delle altre.</p>'
+    : '';
+  elCarenzeDove.innerHTML =
+    `<h3>Dove sbagli</h3><ul class="carenza-lista">${righeDove}</ul>${notaDivario}`;
+
+  // 4. QUANTO: distribuzione della qualita' delle mosse (best -> blunder), compatta.
+  const grav = p.conteggio_gravita || {};
+  const totGrav = QUALITA_ORDINE.reduce((s, g) => s + (grav[g] || 0), 0);
+  const barre = QUALITA_ORDINE.map((g) => {
+    const n = grav[g] || 0;
+    const perc = totGrav ? Math.round((100 * n) / totGrav) : 0;
+    return `<li class="qualita-riga">
+        <span class="qualita-nome">${g}</span>
+        <span class="qualita-barra"><span class="qualita-fill qualita-${g}" style="width:${perc}%"></span></span>
+        <span class="qualita-num">${n} (${perc}%)</span>
+      </li>`;
+  }).join('');
+  elCarenzeQuanto.innerHTML =
+    `<h3>Quanto · qualità delle mosse</h3><ul class="qualita-lista">${barre}</ul>`;
+
+  // 5. PIANO DI STUDIO: la parte azionabile, sotto il report.
+  renderPianoStudio(p.piano_studio, p.confronto);
+
+  // 6. CONFRONTO nel tempo: stai migliorando davvero? (partite recenti vs storico).
+  renderConfronto(p.confronto);
+
+  // 7. EVOLUZIONE nel tempo: grafico dei tassi DEL PERIODO (raffinamento punto 4).
+  //    Usa gli stessi temi rilevanti del report, cosi' le linee combaciano col resto.
+  aggiornaEvoluzione(p.temi_rilevanti || []);
+}
+
+// Etichetta leggibile del peso relativo di una voce rispetto al tema dominante.
+// Onesto: NON finge minuti, esprime solo "quante volte piu' urgente del secondo".
+function etichettaPeso(peso) {
+  if (peso >= 1) return 'priorità massima';        // il tema dominante (peso 1.0)
+  // Es. peso 0.5 -> "circa metà del tema dominante"; 0.8 -> "~0.8× del dominante".
+  return `priorità ~${peso}× rispetto al tema dominante`;
+}
+
+// Presentazione di una tendenza: il tasso d'ERRORE che scende = miglioramento, quindi
+// "migliorato" e' una freccia in giu' verde; "peggiorato" in su rossa; "stabile" grigia.
+const TENDENZE = {
+  migliorato: { freccia: '▼', classe: 'tend-migliorato', testo: 'in calo (meglio)' },
+  peggiorato: { freccia: '▲', classe: 'tend-peggiorato', testo: 'in aumento (peggio)' },
+  stabile: { freccia: '→', classe: 'tend-stabile', testo: 'stabile' },
+};
+
+// Disegna il blocco "📋 Il tuo piano di studio" dalle voci del piano (statico).
+// `confronto` (Tappa D) e' opzionale: se presente, ogni voce mostra una freccetta
+// di tendenza rispetto allo storico nelle ultime N partite.
+function renderPianoStudio(piano, confronto) {
+  if (!piano) { elCarenzePiano.innerHTML = ''; return; }
+  const voci = piano.voci || [];
+
+  // Caso limite: nessun tema rilevante -> solo la nota onesta, niente elenco.
+  if (voci.length === 0) {
+    elCarenzePiano.innerHTML =
+      `<h3>📋 Il tuo piano di studio</h3>
+       <p class="piano-nota">${piano.nota_posizionale || ''}</p>`;
+    return;
+  }
+
+  const partiteNuove = (confronto && confronto.partite_nuove) || 0;
+  const righe = voci.map((v) => {
+    const ogni = v.ogni_quante_mosse
+      ? `una ogni ~${v.ogni_quante_mosse} mosse` : 'raro';
+    // Pulsante "allenati su questo tema": riusa scegliTema (flusso temi).
+    const bottone = v.tema_libero
+      ? `<button class="piano-allena" data-tema="${v.tema_libero}">allenati su questo tema</button>`
+      : '';
+    // Freccetta di tendenza (se il confronto esiste e copre questo tema).
+    const t = v.tendenza && TENDENZE[v.tendenza];
+    const tendenza = t
+      ? `<span class="piano-tendenza ${t.classe}"
+            title="rispetto al tuo storico, nelle ultime ${partiteNuove} partite: ${t.testo}">${t.freccia}</span>`
+      : '';
+    return `<li class="piano-voce">
+        <div class="piano-voce-testa">
+          <span class="piano-tema">${etichettaCarenza(v.tema)}</span>
+          ${tendenza}
+          <span class="piano-priorita priorita-${v.priorita}">${v.priorita}</span>
+        </div>
+        <span class="piano-dato">${ogni} · ${v.tasso_su_mosse}% delle tue mosse · ${etichettaPeso(v.peso_relativo)}</span>
+        ${bottone}
+      </li>`;
+  }).join('');
+
+  const progressione = piano.progressione
+    ? `<p class="piano-progressione">${piano.progressione}</p>` : '';
+  const nota = piano.nota_posizionale
+    ? `<p class="piano-nota">${piano.nota_posizionale}</p>` : '';
+
+  elCarenzePiano.innerHTML =
+    `<h3>📋 Il tuo piano di studio</h3>
+     <p class="piano-intro">In base a dove sbagli più spesso, ecco su quali temi
+       liberi concentrarti.</p>
+     <ol class="piano-lista">${righe}</ol>
+     ${progressione}${nota}`;
+
+  // Aggancio i pulsanti "allenati" al flusso temi (stesso meccanismo dei temi liberi).
+  elCarenzePiano.querySelectorAll('.piano-allena').forEach((b) => {
+    b.addEventListener('click', () => scegliTema(b.dataset.tema));
+  });
+}
+
+// Disegna il blocco "📈 Stai migliorando?" (Tappa D): confronto onesto tra le partite
+// recenti e lo storico. Se non c'e' ancora un confronto, spiega come ottenerlo.
+function renderConfronto(confronto) {
+  const titolo = '<h3>📈 Stai migliorando? <small>(partite recenti vs storico)</small></h3>';
+
+  // Nessun confronto disponibile: messaggio onesto su come sbloccarlo.
+  if (!confronto) {
+    elCarenzeConfronto.innerHTML =
+      `${titolo}
+       <p class="confronto-vuoto">Nessun confronto ancora: carica nuove partite dopo
+         esserti allenato e qui vedrai se stai migliorando davvero — sulle partite
+         vere, non sui puzzle.</p>`;
+    return;
+  }
+
+  // Banner discreto quando il confronto è poco affidabile (poche partite nuove).
+  const avviso = !confronto.affidabile && confronto.avvertenza
+    ? `<p class="confronto-avviso">⚠️ ${confronto.avvertenza}</p>` : '';
+
+  const righe = (confronto.voci || []).map((v) => {
+    const nome = etichettaCarenza(v.tema || v.fase);
+    const genere = v.tema ? 'tema' : 'fase';
+    const t = TENDENZE[v.tendenza] || TENDENZE.stabile;
+    const segno = v.delta > 0 ? '+' : '';   // il delta porta già il segno meno
+    return `<li class="confronto-voce">
+        <span class="confronto-nome">${nome} <em class="confronto-genere">${genere}</em></span>
+        <span class="confronto-tassi">
+          ${v.tasso_storico}% <span class="confronto-arrow ${t.classe}">${t.freccia}</span> ${v.tasso_recente}%
+          <span class="confronto-delta ${t.classe}">(${segno}${v.delta})</span>
+        </span>
+      </li>`;
+  }).join('');
+
+  elCarenzeConfronto.innerHTML =
+    `${titolo}
+     <p class="confronto-base">Basato sulle tue ultime
+       <strong>${confronto.partite_nuove}</strong> partite, confrontate con lo storico
+       precedente.</p>
+     ${avviso}
+     <ul class="confronto-lista">${righe}</ul>`;
+}
+
+// --- Evoluzione nel tempo (grafico anti-diluizione, raffinamento del punto 4) ---
+// Linee dei tassi d'errore DEL PERIODO (sole partite nuove di ogni snapshot), NON
+// cumulativi: e' cosi' che si vede il miglioramento vero. Un grafico per i temi
+// tattici rilevanti, uno per le fasi. I punti di periodi con poche partite
+// (affidabile=false) sono resi con punto vuoto: indicativi, non conclusivi.
+
+let graficoEvolTemi = null;
+let graficoEvolFasi = null;
+
+// Palette stabile per le linee (riusata tra temi e fasi).
+const COLORI_EVOLUZIONE = ['#3a6ea5', '#c0504d', '#4a7', '#e0a800', '#7e57c2', '#00897b'];
+
+// "2026-06-11T14:30:00" -> "11/06 14:30" (etichetta X compatta e leggibile).
+function formattaTimestamp(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  const due = (n) => String(n).padStart(2, '0');
+  return `${due(d.getDate())}/${due(d.getMonth() + 1)} ${due(d.getHours())}:${due(d.getMinutes())}`;
+}
+
+// Scarica la serie temporale e disegna i due grafici (o lo stato vuoto onesto).
+async function aggiornaEvoluzione(temiRilevanti) {
+  try {
+    const r = await fetch(`${BACKEND}/storico-profili`).then((x) => x.json());
+    // STATO VUOTO ONESTO: con < 2 snapshot (nessun punto-periodo) niente grafico.
+    if (!r.ha_dati || !(r.punti && r.punti.length)) {
+      if (elEvoluzioneGrafici) elEvoluzioneGrafici.hidden = true;
+      if (elEvoluzioneVuoto) elEvoluzioneVuoto.hidden = false;
+      if (graficoEvolTemi) { graficoEvolTemi.destroy(); graficoEvolTemi = null; }
+      if (graficoEvolFasi) { graficoEvolFasi.destroy(); graficoEvolFasi = null; }
+      return;
+    }
+    if (elEvoluzioneVuoto) elEvoluzioneVuoto.hidden = true;
+    if (elEvoluzioneGrafici) elEvoluzioneGrafici.hidden = false;
+
+    const punti = r.punti;
+    const etichette = punti.map((p) => formattaTimestamp(p.timestamp));
+
+    // Temi da tracciare: i rilevanti del report; in mancanza, quelli che hanno
+    // almeno un valore > 0 nella serie (cosi' il grafico non resta vuoto).
+    let temi = (temiRilevanti || []).filter(
+      (t) => punti.some((p) => (p.tasso_tipo || {})[t] > 0));
+    if (temi.length === 0) {
+      const visti = new Set();
+      punti.forEach((p) => Object.entries(p.tasso_tipo || {}).forEach(([t, v]) => {
+        if (v > 0) visti.add(t);
+      }));
+      temi = [...visti];
+    }
+
+    disegnaGraficoEvoluzione(
+      'grafico-evoluzione-temi',
+      (g) => { graficoEvolTemi = g; },
+      graficoEvolTemi,
+      etichette, punti, temi, (p, k) => (p.tasso_tipo || {})[k],
+      "Evoluzione dei temi tattici (tasso delle partite nuove di ogni periodo)");
+
+    const fasi = ['apertura', 'mediogioco', 'finale'];
+    disegnaGraficoEvoluzione(
+      'grafico-evoluzione-fasi',
+      (g) => { graficoEvolFasi = g; },
+      graficoEvolFasi,
+      etichette, punti, fasi, (p, k) => (p.tasso_fase || {})[k],
+      "Evoluzione per fase (tasso delle partite nuove di ogni periodo)");
+  } catch (err) {
+    console.error('Errore caricamento evoluzione:', err);
+  }
+}
+
+// Disegna un grafico a linee dell'evoluzione: una linea per `chiave`, asse X = tempo,
+// asse Y = tasso (%). I punti di periodi non affidabili sono resi vuoti (bordo colore
+// pieno, riempimento bianco). `valore(p, k)` estrae il tasso del punto p per la chiave k.
+function disegnaGraficoEvoluzione(canvasId, salva, vecchio, etichette, punti, chiavi,
+                                  valore, titolo) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  if (vecchio) vecchio.destroy();
+  const datasets = chiavi.map((k, i) => {
+    const colore = COLORI_EVOLUZIONE[i % COLORI_EVOLUZIONE.length];
+    // Per-punto: pieno se affidabile, vuoto (bianco) se poche partite.
+    const sfondoPunti = punti.map((p) => (p.affidabile ? colore : '#fff'));
+    return {
+      label: k.replace(/_/g, ' '),
+      data: punti.map((p) => {
+        const v = valore(p, k);
+        return (v == null) ? null : v;  // null -> Chart.js salta il punto
+      }),
+      borderColor: colore,
+      backgroundColor: colore,
+      pointBackgroundColor: sfondoPunti,
+      pointBorderColor: colore,
+      pointRadius: 4,
+      pointHoverRadius: 5,
+      tension: 0.2,
+      spanGaps: true,
+      fill: false,
+    };
+  });
+  const g = new Chart(canvas, {
+    type: 'line',
+    data: { labels: etichette, datasets },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: '% delle mosse' } },
+        x: { title: { display: true, text: 'periodo (data)' } },
+      },
+      plugins: {
+        title: { display: true, text: titolo },
+        // Nota onesta in legenda: i periodi con poche partite sono indicativi.
+        subtitle: {
+          display: true,
+          text: 'I punti vuoti sono periodi con poche partite: indicativi.',
+          font: { style: 'italic', size: 11 },
+          padding: { bottom: 6 },
+        },
+      },
+    },
+  });
+  salva(g);
+}
+
 // Mostra/nasconde la sezione progressi; quando la apro, aggiorno i grafici.
 elToggleProg.addEventListener('click', () => {
   elProgressi.hidden = !elProgressi.hidden;
   if (!elProgressi.hidden) aggiornaProgressi();
+});
+
+// Mostra/nasconde la sezione carenze; quando la apro, scarico il profilo.
+elToggleCarenze.addEventListener('click', () => {
+  elCarenze.hidden = !elCarenze.hidden;
+  if (!elCarenze.hidden) aggiornaCarenze();
 });
 
 // Pulsante "prossimo puzzle".

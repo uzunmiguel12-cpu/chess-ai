@@ -7,7 +7,8 @@ puzzle da fare, e il server lo pesca dal flusso attivo.
 Il sistema gestisce TRE flussi indipendenti (punto 1 della visione estesa):
   - "piano"  : puzzle dalle debolezze del profilo (piano automatico)
   - "temi"   : puzzle del tema scelto liberamente dall'utente
-  - "errori" : puzzle dai propri errori (PREDISPOSTO, non ancora implementato; punto 6)
+  - "errori" : puzzle dai propri errori (file coda_errori.json), completati da
+               puzzle di rinforzo Lichess quando i propri errori si esauriscono
 
 Ogni flusso ha, in modo INDIPENDENTE: la propria coda, la propria fascia di Elo
 adattiva (regola dell'85%), le proprie statistiche (tentati / risolti al primo /
@@ -31,6 +32,8 @@ Avvio (dalla cartella api, con ambiente attivo):
 import os
 import sys
 import json
+import glob
+import random
 import logging
 import datetime
 from fastapi import FastAPI
@@ -47,6 +50,7 @@ for p in (_RAG, _ML):
         sys.path.insert(0, p)
 
 from piano import costruisci_piano  # noqa: E402
+from profilo import costruisci_profilo, TIPI_TATTICI, FASI  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,6 +63,18 @@ logger = logging.getLogger("api")
 GIOCATORE = os.environ.get("CHESS_PLAYER", "MigueL_uz")
 PERCORSO_DB = os.path.join(_QUI, "..", "data", "puzzle.db")
 PERCORSO_STATO = os.path.join(_QUI, "..", "data", "stato_sessione.json")
+# Puzzle dai miei errori, gia' nel formato della coda (prodotti da ml/coda_errori.py).
+# Il flusso "errori" usa di preferenza la versione ESTESA (sequenze multi-mossa,
+# prodotte da ml/estendi_sequenze.py); se manca, ripiega sulla base da 1 mossa.
+PERCORSO_CODA_ERRORI = os.path.join(_QUI, "..", "data", "coda_errori_estesa.json")
+PERCORSO_CODA_ERRORI_BASE = os.path.join(_QUI, "..", "data", "coda_errori.json")
+# Partite arricchite (una per file) da cui costruisci_profilo ricava il profilo.
+# Stesso percorso del default di profilo.py; esplicito qui per poterlo reindirizzare
+# nei test e per elencare i file ai fini dello SNAPSHOT NEL TEMPO (Tappa D).
+PERCORSO_CATEGORIE = os.path.join(_QUI, "..", "data", "categorie")
+# Storico degli snapshot del profilo (Tappa D): lista di fotografie nel tempo +
+# l'ultimo confronto "partite nuove vs storico". Vedi _aggiorna_e_confronta.
+PERCORSO_STORICO = os.path.join(_QUI, "..", "data", "storico_profili.json")
 ELO_MIN = int(os.environ.get("CHESS_ELO_MIN", "1050"))
 ELO_MAX = int(os.environ.get("CHESS_ELO_MAX", "1250"))
 
@@ -66,8 +82,8 @@ ELO_MAX = int(os.environ.get("CHESS_ELO_MAX", "1250"))
 # L'ordine e' anche quello di presentazione nel frontend.
 FLUSSI = ("piano", "temi", "errori")
 FLUSSO_DEFAULT = "piano"
-# Flussi gia' implementati (il flusso "errori" e' solo predisposto: verra' col punto 6).
-FLUSSI_IMPLEMENTATI = ("piano", "temi")
+# Flussi gia' implementati: tutti e tre (il flusso "errori" e' il punto 6 della visione).
+FLUSSI_IMPLEMENTATI = ("piano", "temi", "errori")
 # Versione del formato del file di stato (1 = vecchio stato singolo; 2 = tre flussi).
 VERSIONE_STATO = 2
 
@@ -85,6 +101,23 @@ PUZZLE_PER_BLOCCO = 30   # quanti puzzle pescare per blocco (varieta')
 # Tutto qui e' SOLO lettura/conteggio: NON influenza la fascia adattiva.
 SNAPSHOT_OGNI = 10
 TENDENZA_FINESTRA = 5
+
+# --- Parametri del REPORT DELLE CARENZE (punto 2 della visione) ---
+# Un tema tattico e' "rilevante" solo se pesa almeno questa % sugli errori gravi;
+# sotto soglia e' rumore statistico (es. infilata allo 0.1%) e NON va consigliato.
+SOGLIA_RILEVANZA = 5.0
+# Le fasi si considerano "vicine" (nessuna drammaticamente peggiore) se la forbice
+# tra il tasso di errore piu' alto e quello piu' basso resta sotto questo divario.
+DIVARIO_FASI_PICCOLO = 10.0
+
+# --- Parametri dello SNAPSHOT NEL TEMPO (Tappa D del punto 2) ---
+# Una tendenza e' "stabile" se il tasso si muove meno di questo (punti percentuali):
+# sotto questa soglia il movimento e' rumore, non un vero miglioramento/peggioramento.
+SOGLIA_STABILE = 0.5
+# Guardrail anti-rumore: sotto questo numero di partite NUOVE il confronto e' marcato
+# "non affidabile" (~1650 mosse a ~33 mosse/partita). E' un'EURISTICA DICHIARATA, non
+# una soglia statistica formale: serve solo a non gridare al miglioramento su 5 partite.
+GUARDRAIL_PARTITE = 50
 
 # --- Parametri dell'esaurimento puzzle ---
 # Quando un blocco/tema ha pochi puzzle nuovi nella fascia corrente, alziamo
@@ -153,8 +186,50 @@ app.add_middleware(
 CAMPI_PERSISTENTI_FLUSSO = (
     "tentati", "risolti_primo", "risolti_secondo", "falliti",
     "elo_min", "elo_max", "storico_fasce", "statistiche_temi",
-    "snapshot_progresso", "tema_libero",
+    "snapshot_progresso", "tema_libero", "errori_attivo",
 )
+
+
+# Puzzle dai miei errori, caricati UNA volta in memoria all'avvio (sono pochi).
+# Ogni voce e' gia' nel formato della coda (id, fen, moves, rating, themes,
+# motivo_allenamento="errore", fase_allenamento). Il flusso "errori" li pesca da qui.
+_PUZZLE_ERRORI = []
+
+
+def _carica_puzzle_errori():
+    """
+    Carica in memoria i puzzle dai miei errori (una volta), preferendo la versione
+    ESTESA con sequenze multi-mossa. Strategia a cascata:
+
+    1. PERCORSO_CODA_ERRORI (esteso): se c'e' ed e' leggibile, lo usa.
+    2. PERCORSO_CODA_ERRORI_BASE (1 mossa): fallback con warning se l'esteso manca
+       o e' illeggibile, cosi' il flusso non parte vuoto inutilmente.
+    3. Nessuno dei due: lista vuota + warning. Il flusso "errori" esistera' comunque,
+       ma sara' subito "esaurito"/fallback (i puzzle si rimpiazzano con rinforzi
+       Lichess in _riempi_coda_errori).
+    """
+    global _PUZZLE_ERRORI
+    # 1. Prova prima il file esteso, poi il base.
+    for percorso, etichetta in ((PERCORSO_CODA_ERRORI, "esteso"),
+                                (PERCORSO_CODA_ERRORI_BASE, "base")):
+        if not os.path.exists(percorso):
+            continue
+        try:
+            with open(percorso, "r", encoding="utf-8") as fp:
+                _PUZZLE_ERRORI = json.load(fp)
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning("Impossibile caricare gli errori (%s) da %s.", e, percorso)
+            continue
+        if etichetta == "base":
+            logger.warning("File errori esteso mancante (%s): ripiego sul file base "
+                           "da 1 mossa (%s).", PERCORSO_CODA_ERRORI, percorso)
+        logger.info("Caricati %d puzzle-errore (%s) da %s",
+                    len(_PUZZLE_ERRORI), etichetta, percorso)
+        return
+    # 3. Nessun file utilizzabile.
+    logger.warning("Nessun file errori utilizzabile (esteso %s, base %s): il flusso "
+                   "errori parte vuoto.", PERCORSO_CODA_ERRORI, PERCORSO_CODA_ERRORI_BASE)
+    _PUZZLE_ERRORI = []
 
 
 def _nuovo_flusso():
@@ -179,6 +254,7 @@ def _nuovo_flusso():
         "elo_max": ELO_MAX,
         "storico_fasce": [],     # cambi di fascia di QUESTO flusso
         "tema_libero": None,     # tema attivo (solo flusso "temi")
+        "errori_attivo": False,  # True quando si entra nel flusso "errori" (solo flusso "errori")
         "statistiche_temi": {},  # tema -> {"tentati", "risolti_primo"}
         "snapshot_progresso": [],  # fotografie periodiche dei progressi
     }
@@ -299,6 +375,9 @@ def _prepara_sessione():
         _sessione["visti"] = set()
         _sessione["flusso_attivo"] = FLUSSO_DEFAULT
 
+    # Carico una volta i puzzle dai miei errori (lista in memoria, vuota se manca il file).
+    _carica_puzzle_errori()
+
     fp = _sessione["flussi"]["piano"]
     piano = costruisci_piano(GIOCATORE, PERCORSO_DB,
                              elo_min=fp["elo_min"], elo_max=fp["elo_max"],
@@ -317,6 +396,7 @@ def _prepara_sessione():
                 "themes": p["themes"],
                 "motivo_allenamento": blocco["motivo"],
                 "fase_allenamento": blocco["fase"],
+                "origine": "lichess",  # uniformita': il campo c'e' sempre
             })
             _sessione["visti"].add(p["id"])
     fp["piano"] = piano
@@ -327,6 +407,12 @@ def _prepara_sessione():
     ft = _sessione["flussi"]["temi"]
     if ft["tema_libero"] in TEMI_DISPONIBILI:
         _riempi_coda_tema(ft, TEMI_DISPONIBILI[ft["tema_libero"]])
+
+    # Flusso "errori": se era gia' attivo (ripristinato da file), ricostruisci la coda
+    # come si fa per i temi con tema_libero.
+    fe = _sessione["flussi"]["errori"]
+    if fe["errori_attivo"]:
+        _riempi_coda_errori(fe)
 
     _sessione["pronta"] = True
     logger.info("Sessione pronta: piano %d puzzle, flusso attivo '%s'",
@@ -407,6 +493,7 @@ def _riempi_coda_tema(f, tema_lichess):
             "id": r[0], "fen": r[1], "moves": r[2], "rating": r[3], "themes": r[4],
             "motivo_allenamento": f["tema_libero"],
             "fase_allenamento": "tema scelto",
+            "origine": "lichess",  # uniformita': il campo c'e' sempre
         })
         _sessione["visti"].add(r[0])
     f["coda"] = nuova_coda
@@ -420,11 +507,89 @@ def _riempi_coda_tema(f, tema_lichess):
     return esaurito
 
 
+def _pesca_errori_righe(f, elo_max):
+    """
+    Pesca dai MIEI errori (_PUZZLE_ERRORI, in memoria) i puzzle NUOVI nella fascia
+    [elo_min del flusso, elo_max], escludendo i visti GLOBALI. Mescola per varieta'
+    (random a seed non fisso: e' runtime, va benissimo). `elo_max` puo' essere il
+    tetto di base o uno allargato temporaneamente da _pesca_allargando.
+    """
+    visti = _sessione["visti"]  # GLOBALE tra i flussi
+    candidati = [p for p in _PUZZLE_ERRORI
+                 if f["elo_min"] <= p["rating"] <= elo_max and p["id"] not in visti]
+    random.shuffle(candidati)
+    return candidati[:PUZZLE_PER_BLOCCO]
+
+
+def _riempi_coda_errori(f):
+    """
+    Riempie la coda del flusso "errori", gemella di _riempi_coda_tema:
+
+    1. Pesca dai MIEI errori (_PUZZLE_ERRORI) nella fascia del flusso, allargando
+       temporaneamente il tetto se scarseggiano (senza toccare la fascia di base).
+       Questi puzzle sono marcati origine="errore", motivo_allenamento="errore".
+    2. Se i miei errori nuovi non bastano a riempire PUZZLE_PER_BLOCCO, COMPLETA con
+       puzzle di RINFORZO da Lichess (stessa fascia di base, esclusi i visti), marcati
+       origine="lichess", motivo_allenamento="rinforzo". NON blocca mai: se anche
+       Lichess non basta, serve quel che c'e'.
+
+    Aggiunge gli id ai visti globali come fanno gli altri flussi e imposta f["esaurito"].
+    """
+    # 1. I miei errori, con allargamento temporaneo del tetto se scarseggiano.
+    errori, _ = _pesca_allargando(
+        f, lambda emax: _pesca_errori_righe(f, emax))
+    nuova_coda = f["coda"][:f["serviti"]]  # tieni i gia' serviti
+    for p in errori:
+        nuova_coda.append({
+            "id": p["id"], "fen": p["fen"], "moves": p["moves"],
+            "rating": p["rating"], "themes": p["themes"],
+            "motivo_allenamento": "errore",       # le statistiche-per-tema lo useranno
+            "fase_allenamento": p.get("fase_allenamento"),
+            "origine": "errore",                  # puzzle dai MIEI errori
+            # Quante mosse "mie" richiede la soluzione (1/2/3): i puzzle estesi lo
+            # portano, quelli base implicitamente 1. Serve al frontend per il badge.
+            "lunghezza_soluzione": p.get("lunghezza_soluzione", 1),
+        })
+        _sessione["visti"].add(p["id"])
+
+    # 2. Completamento con rinforzi Lichess se i miei errori nuovi non bastano.
+    mancanti = PUZZLE_PER_BLOCCO - len(errori)
+    n_rinforzi = 0
+    if mancanti > 0:
+        from raccomanda import raccomanda
+        rinforzi = raccomanda(
+            PERCORSO_DB, elo_min=f["elo_min"], elo_max=f["elo_max"],
+            quanti=mancanti, escludi_id=list(_sessione["visti"]))
+        for p in rinforzi:
+            nuova_coda.append({
+                "id": p["id"], "fen": p["fen"], "moves": p["moves"],
+                "rating": p["rating"], "themes": p["themes"],
+                "motivo_allenamento": "rinforzo",  # rinforzo, non un mio errore
+                "fase_allenamento": None,
+                "origine": "lichess",              # pescato dal DB Lichess
+            })
+            _sessione["visti"].add(p["id"])
+            n_rinforzi += 1
+
+    f["coda"] = nuova_coda
+    # Esaurito solo se nemmeno i rinforzi bastano a dare puzzle nuovi a sufficienza.
+    f["esaurito"] = (len(f["coda"]) - f["serviti"]) < PUZZLE_MINIMI
+    logger.info("Coda errori riempita: %d dai miei errori + %d rinforzi Lichess "
+                "(fascia base %d-%d)", len(errori), n_rinforzi,
+                f["elo_min"], f["elo_max"])
+    return f["esaurito"]
+
+
 def _ricostruisci_coda_con_fascia(f):
     """
     Dopo un cambio di fascia del flusso `f`, ripesca i puzzle con la nuova fascia.
-    In modalita' tema libero ripesca quel tema; altrimenti i temi del piano.
+    Per il flusso "errori" ripesca dai miei errori (+ rinforzi); in modalita' tema
+    libero ripesca quel tema; altrimenti i temi del piano.
     """
+    # Flusso "errori": ripesca dai miei errori, completando con rinforzi Lichess.
+    if f["errori_attivo"]:
+        _riempi_coda_errori(f)
+        return
     # Flusso "temi": ripesca solo quel tema.
     if f["tema_libero"] is not None:
         _riempi_coda_tema(f, TEMI_DISPONIBILI[f["tema_libero"]])
@@ -448,6 +613,7 @@ def _ricostruisci_coda_con_fascia(f):
                 "rating": p["rating"], "themes": p["themes"],
                 "motivo_allenamento": blocco["motivo"],
                 "fase_allenamento": blocco["fase"],
+                "origine": "lichess",  # uniformita': il campo c'e' sempre
             })
             _sessione["visti"].add(p["id"])
             nuovi += 1
@@ -613,6 +779,486 @@ def _riepilogo_complessivo():
     }
 
 
+# --- REPORT DELLE CARENZE (punto 2 della visione) ------------------------
+# Arricchimento "di presentazione" del profilo: profilo.py resta puro (calcola
+# conteggi, tassi per fase, percentuali tattiche). Qui ci aggiungiamo i tassi sulle
+# MOSSE TOTALI, la classificazione dei temi per rilevanza, una sintesi onesta e la
+# nota sul divario tra le fasi. Tutto a partire dai numeri reali, niente hardcoded.
+
+def _tassi_su_mosse(profilo):
+    """
+    Per ogni tipo tattico (+ non_tattico): il tasso sulle MOSSE TOTALI ("ogni quante
+    mosse commetti quel tipo di errore") e il "una ogni ~N mosse". Estratto perche'
+    serve sia all'arricchimento del profilo sia agli snapshot nel tempo (Tappa D).
+    Restituisce (tasso_per_tipo, ogni_quante_per_tipo).
+    """
+    mosse_totali = profilo.get("mosse_totali", 0)
+    conteggio_tattico = profilo.get("conteggio_tattico", {})
+    tasso = {}
+    ogni = {}
+    for tipo in list(TIPI_TATTICI) + ["non_tattico"]:
+        n = conteggio_tattico.get(tipo, 0)
+        tasso[tipo] = round(100 * n / mosse_totali, 1) if mosse_totali else 0.0
+        ogni[tipo] = round(mosse_totali / n) if n > 0 else None
+    return tasso, ogni
+
+
+def _fase_dominante_tipo(profilo, tipo):
+    """Fase in cui un tipo tattico compare di piu' (da tattico_per_fase). None se
+    quel tipo non ha occorrenze per fase."""
+    per_fase = profilo.get("tattico_per_fase", {}).get(tipo, {})
+    if not per_fase:
+        return None
+    return max(per_fase, key=per_fase.get)
+
+
+def _sintesi_carenze(profilo, tasso_su_mosse, ogni_quante_mosse,
+                     temi_rilevanti, temi_non_rilevanti):
+    """
+    Compone 1-3 frasi ONESTE dai numeri del profilo (mai hardcodate):
+      - il tipo di errore dominante (tasso_su_mosse piu' alto tra i rilevanti) e in
+        quale fase si concentra;
+      - il secondo tema rilevante, se c'e';
+      - che i temi sotto-soglia (es. inchiodatura/infilata) NON sono un problema;
+      - che la quota non_tattico e' posizionale/strategica e NON e' allenabile coi
+        puzzle tattici (gancio onesto verso le diagnosi profonde, punto 5).
+    Se mancano dati, le parti relative si omettono invece di inventare.
+    """
+    def etichetta(tipo):
+        return tipo.replace("_", " ")
+
+    frasi = []
+    # Temi rilevanti ordinati per tasso sulle mosse, decrescente.
+    rilevanti_ordinati = sorted(
+        temi_rilevanti, key=lambda t: tasso_su_mosse.get(t, 0.0), reverse=True)
+
+    if rilevanti_ordinati:
+        dominante = rilevanti_ordinati[0]
+        fase_dom = _fase_dominante_tipo(profilo, dominante)
+        ogni = ogni_quante_mosse.get(dominante)
+        pezzo = (f"Il tuo errore tattico piu' frequente e' «{etichetta(dominante)}» "
+                 f"({tasso_su_mosse.get(dominante, 0.0)}% delle mosse")
+        if ogni:
+            pezzo += f", una ogni ~{ogni} mosse"
+        pezzo += ")"
+        if fase_dom:
+            pezzo += f", soprattutto in {fase_dom}"
+        frasi.append(pezzo + ".")
+        if len(rilevanti_ordinati) >= 2:
+            secondo = rilevanti_ordinati[1]
+            frasi.append(f"Segue «{etichetta(secondo)}» "
+                         f"({tasso_su_mosse.get(secondo, 0.0)}% delle mosse).")
+    else:
+        frasi.append("Nessun tipo tattico spicca come problema ricorrente.")
+
+    # I temi sotto-soglia: onestamente, non sono un problema per questo giocatore.
+    if temi_non_rilevanti:
+        elenco = ", ".join(etichetta(t) for t in temi_non_rilevanti)
+        frasi.append(f"Invece {elenco} non sono un problema per te: troppo rari "
+                     f"per valere un allenamento dedicato.")
+
+    # Quota non_tattico: posizionale/strategica, non coperta dai puzzle tattici.
+    perc_non_tattico = profilo.get("percentuali_tattico", {}).get("non_tattico", 0.0)
+    if perc_non_tattico > 0:
+        frasi.append(f"Attenzione: il {perc_non_tattico}% dei tuoi errori gravi e' "
+                     f"posizionale/strategico, non tattico: i puzzle tattici non lo "
+                     f"allenano (servira' una diagnosi piu' profonda).")
+
+    return " ".join(frasi)
+
+
+def _piano_studio(profilo, tasso_su_mosse, ogni_quante_mosse, temi_rilevanti):
+    """
+    PIANO DI STUDIO PERSONALIZZATO (Tappa C del punto 2): la parte AZIONABILE del
+    report. E' STATICO (una foto del profilo attuale, non una misura di progresso:
+    quella sara' la Tappa D) ed e' ONESTO: espone PESI RELATIVI e priorita'
+    qualitative, MAI minuti ne' percentuali assolute di tempo (sarebbero finte).
+
+      - Considera solo i temi tattici RILEVANTI (>= SOGLIA_RILEVANZA): i sotto-soglia
+        (es. inchiodatura/infilata troppo rari) NON entrano nel piano.
+      - "Peso grezzo" di un tema = il suo tasso_su_mosse; il peso_relativo lo
+        normalizza sul tema dominante (dominante = 1.0, gli altri una frazione).
+      - Priorita': "alta" al dominante; per gli altri "media" se peso_relativo >= 0.5,
+        "bassa" se < 0.5.
+      - Ogni voce porta il "tema_libero" corrispondente (pezzo_in_presa, forchetta, ...)
+        cosi' il frontend puo' agganciarci i pulsanti del flusso temi.
+    Restituisce {voci, progressione, nota_posizionale}.
+    """
+    def etichetta(tipo):
+        return tipo.replace("_", " ")
+
+    # La quota posizionale/strategica: serve sia alla nota normale sia al caso limite.
+    perc_non_tattico = profilo.get("percentuali_tattico", {}).get("non_tattico", 0.0)
+
+    # 6. CASO LIMITE: nessun tema rilevante (improbabile sui dati reali). Niente piano,
+    #    ma un messaggio neutro e onesto invece di crashare.
+    if not temi_rilevanti:
+        return {
+            "voci": [],
+            "progressione": "",
+            "nota_posizionale": (
+                f"Nessun tema tattico spicca abbastanza da costruire un piano: "
+                f"il {perc_non_tattico}% dei tuoi errori gravi e' posizionale/"
+                f"strategico e va oltre i puzzle tattici (serve una diagnosi piu' "
+                f"profonda, punto 5 della visione)."),
+        }
+
+    conteggio_tattico = profilo.get("conteggio_tattico", {})
+
+    # 1-2. Ordino i rilevanti per tasso sulle mosse, decrescente: il primo e' il
+    #      tema dominante, sul quale normalizzo i pesi relativi.
+    rilevanti_ordinati = sorted(
+        temi_rilevanti, key=lambda t: tasso_su_mosse.get(t, 0.0), reverse=True)
+    dominante = rilevanti_ordinati[0]
+    tasso_dominante = tasso_su_mosse.get(dominante, 0.0) or 1.0  # guardia anti /0
+
+    # 3. Le voci del piano, dal dominante in giu'.
+    voci = []
+    for i, tipo in enumerate(rilevanti_ordinati):
+        tasso = tasso_su_mosse.get(tipo, 0.0)
+        rapporto = tasso / tasso_dominante          # grezzo, per decidere la priorita'
+        peso_relativo = round(rapporto, 1)          # esposto, a 1 decimale
+        if i == 0:
+            priorita = "alta"                        # il dominante
+        elif rapporto >= 0.5:
+            priorita = "media"
+        else:
+            priorita = "bassa"
+        voci.append({
+            "tema": tipo,
+            # Tema-libero del frontend (i TIPI_TATTICI coincidono coi nomi dei temi
+            # liberi); None se un tipo non avesse un tema allenabile corrispondente.
+            "tema_libero": tipo if tipo in TEMI_DISPONIBILI else None,
+            "conteggio": conteggio_tattico.get(tipo, 0),
+            "tasso_su_mosse": tasso,
+            "ogni_quante_mosse": ogni_quante_mosse.get(tipo),
+            "peso_relativo": peso_relativo,
+            "priorita": priorita,
+        })
+
+    # 4. PROGRESSIONE: consiglio di METODO (statico), generato dai temi reali.
+    if len(rilevanti_ordinati) >= 2:
+        secondo = rilevanti_ordinati[1]
+        progressione = (
+            f"Inizia da «{etichetta(dominante)}» finche' non lo senti piu' solido, "
+            f"poi alterna con «{etichetta(secondo)}» per non trascurarlo.")
+    else:
+        # Un solo tema rilevante: adatto il testo, niente "secondo tema".
+        progressione = (
+            f"Concentrati su «{etichetta(dominante)}»: e' l'unico tema che pesa "
+            f"abbastanza da meritare un allenamento dedicato adesso.")
+
+    # 5. NOTA POSIZIONALE: disclaimer onesto sul fatto che il piano copre SOLO i temi
+    #    tattici dei puzzle; cita la percentuale non_tattico reale (gancio al punto 5).
+    nota_posizionale = (
+        f"Questo piano copre solo i temi tattici allenabili coi puzzle. "
+        f"Il {perc_non_tattico}% dei tuoi errori gravi e' posizionale/strategico: "
+        f"resta fuori dai puzzle e va affrontato a parte (diagnosi piu' profonda, "
+        f"punto 5 della visione).")
+
+    return {
+        "voci": voci,
+        "progressione": progressione,
+        "nota_posizionale": nota_posizionale,
+    }
+
+
+def _arricchisci_profilo(profilo, confronto=None):
+    """
+    Arricchisce il profilo puro (output di costruisci_profilo) con i dati del REPORT
+    DELLE CARENZE: tassi sulle mosse totali, temi rilevanti/non rilevanti, sintesi
+    onesta, nota sul divario tra le fasi e PIANO DI STUDIO azionabile. Restituisce una
+    copia arricchita; non modifica ne' il profilo originale ne' profilo.py.
+
+    `confronto` (Tappa D, opzionale) e' l'esito di _aggiorna_e_confronta: se presente
+    viene esposto nel campo "confronto" e le sue tendenze annotano le voci del piano.
+    """
+    percentuali_tattico = profilo.get("percentuali_tattico", {})
+
+    # 1. TASSO SUL DENOMINATORE "MOSSE TOTALI" (non sulle occasioni!): e' "ogni
+    #    quante mosse commetti quel tipo di errore", NON "quante occasioni hai
+    #    mancato". Aggiungiamo anche "una ogni ~N mosse" (mosse_totali / conteggio).
+    tasso_su_mosse_per_tipo, ogni_quante_mosse_per_tipo = _tassi_su_mosse(profilo)
+
+    # 2. RILEVANZA: un tema tattico conta solo se pesa >= SOGLIA_RILEVANZA % sugli
+    #    errori gravi; sotto soglia e' rumore statistico e non va consigliato.
+    temi_rilevanti = []
+    temi_non_rilevanti = []
+    for tipo in TIPI_TATTICI:
+        perc = percentuali_tattico.get(tipo, 0.0)
+        if perc >= SOGLIA_RILEVANZA:
+            temi_rilevanti.append(tipo)
+        else:
+            temi_non_rilevanti.append(tipo)
+
+    # 4. DIVARIO TRA LE FASI: se i tassi per fase sono vicini, non far sembrare una
+    #    fase drammaticamente peggiore. Considero solo le fasi con mosse giocate.
+    tasso_per_fase = profilo.get("tasso_errore_per_fase", {})
+    mosse_per_fase = profilo.get("mosse_per_fase", {})
+    tassi_validi = [tasso_per_fase[f] for f in FASI
+                    if mosse_per_fase.get(f, 0) > 0 and f in tasso_per_fase]
+    if len(tassi_validi) >= 2:
+        fasi_divario = round(max(tassi_validi) - min(tassi_validi), 1)
+        fasi_divario_piccolo = fasi_divario < DIVARIO_FASI_PICCOLO
+    else:
+        # Una sola fase con dati (o nessuna): nessun confronto sensato -> "vicine".
+        fasi_divario = 0.0
+        fasi_divario_piccolo = True
+
+    # 3. SINTESI onesta, generata dai numeri appena calcolati.
+    sintesi = _sintesi_carenze(profilo, tasso_su_mosse_per_tipo,
+                               ogni_quante_mosse_per_tipo,
+                               temi_rilevanti, temi_non_rilevanti)
+
+    # 5. PIANO DI STUDIO (Tappa C): la parte azionabile, dai soli temi rilevanti.
+    piano_studio = _piano_studio(profilo, tasso_su_mosse_per_tipo,
+                                 ogni_quante_mosse_per_tipo, temi_rilevanti)
+
+    # 6. TENDENZA (Tappa D): se c'e' un confronto, annoto ogni voce del piano con la
+    #    tendenza del suo tema (migliorato/peggiorato/stabile) sulle partite recenti.
+    if confronto and confronto.get("voci"):
+        tendenza_per_tema = {v["tema"]: v["tendenza"]
+                             for v in confronto["voci"] if "tema" in v}
+        for voce in piano_studio.get("voci", []):
+            if voce["tema"] in tendenza_per_tema:
+                voce["tendenza"] = tendenza_per_tema[voce["tema"]]
+
+    arricchito = dict(profilo)  # copia: il profilo originale resta intatto
+    arricchito.update({
+        "tasso_su_mosse_per_tipo": tasso_su_mosse_per_tipo,
+        # Esplicito perche' il tasso NON inganni: il denominatore e' mosse_totali.
+        "tasso_su_mosse_denominatore": "mosse_totali",
+        "ogni_quante_mosse_per_tipo": ogni_quante_mosse_per_tipo,
+        "temi_rilevanti": temi_rilevanti,
+        "temi_non_rilevanti": temi_non_rilevanti,
+        "soglia_rilevanza": SOGLIA_RILEVANZA,
+        "fasi_divario": fasi_divario,
+        "fasi_divario_piccolo": fasi_divario_piccolo,
+        "sintesi": sintesi,
+        "piano_studio": piano_studio,
+        # Confronto "partite nuove vs storico" (Tappa D); None se non disponibile.
+        "confronto": confronto,
+    })
+    return arricchito
+
+
+# --- SNAPSHOT DEL PROFILO NEL TEMPO + confronto (Tappa D del punto 2) -----
+# PRINCIPIO ANTI-DILUIZIONE: il profilo cumulativo nasconde i miglioramenti (100
+# partite nuove su 3300 spostano i tassi in modo impercettibile). Quindi il confronto
+# ONESTO e': profilo delle SOLE partite nuove vs lo snapshot storico precedente. MAI
+# cumulativo vs cumulativo. Tutto qui e' a SOLA LETTURA rispetto all'allenamento:
+# non tocca flussi, code o adattivita' (principio di non-interferenza).
+#
+# Lo storico (data/storico_profili.json) e' {"snapshot": [...], "ultimo_confronto": ...}.
+# Per non gonfiare il file, "file_inclusi" (l'elenco dei file di data/categorie) viene
+# tenuto SOLO nell'ultimo snapshot: e' l'unico che serve per rilevare le partite nuove;
+# gli snapshot piu' vecchi conservano solo i tassi, che e' tutto cio' che il confronto
+# usa di loro.
+
+def _elenco_file_categorie(cartella):
+    """Nomi (basename) dei file partita presenti nella cartella, ordinati. [] se la
+    cartella non esiste."""
+    if not os.path.isdir(cartella):
+        return []
+    return sorted(os.path.basename(p)
+                  for p in glob.glob(os.path.join(cartella, "*.json")))
+
+
+def _carica_storico():
+    """Storico degli snapshot. Struttura sempre valida anche se il file manca o e'
+    illeggibile (riparto da storico vuoto, senza crashare)."""
+    vuoto = {"snapshot": [], "ultimo_confronto": None}
+    if not os.path.exists(PERCORSO_STORICO):
+        return vuoto
+    try:
+        with open(PERCORSO_STORICO, "r", encoding="utf-8") as fp:
+            dato = json.load(fp)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Storico profili illeggibile (riparto vuoto): %s", e)
+        return vuoto
+    # Difesa minima sul formato: garantisco le chiavi attese.
+    dato.setdefault("snapshot", [])
+    dato.setdefault("ultimo_confronto", None)
+    return dato
+
+
+def _salva_storico(storico):
+    """Salvataggio atomico dello storico (scrive su .tmp e rinomina)."""
+    try:
+        tmp = PERCORSO_STORICO + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fp:
+            json.dump(storico, fp, ensure_ascii=False, indent=2)
+        os.replace(tmp, PERCORSO_STORICO)
+    except OSError as e:
+        logger.warning("Impossibile salvare lo storico profili: %s", e)
+
+
+def _snapshot_da_profilo(profilo, file_inclusi, profilo_periodo=None):
+    """
+    Fotografia compatta del profilo: solo i tassi che servono al confronto, piu'
+    timestamp, conteggi e l'elenco dei file inclusi (per rilevare i nuovi).
+
+    I tassi del corpo (tasso_errore_per_fase, tasso_su_mosse_per_tipo, ...) sono
+    CUMULATIVI: descrivono tutto lo storico, e servono al confronto della Tappa D.
+
+    Se `profilo_periodo` e' fornito (il profilo delle SOLE partite NUOVE di questo
+    snapshot, gia' calcolato in _aggiorna_e_confronta), salva ANCHE i tassi DEL
+    PERIODO (campi periodo_*), coerenti col principio anti-diluizione: sono i tassi
+    delle sole partite nuove, non i cumulativi, ed e' su questi che si costruisce il
+    grafico dell'evoluzione nel tempo (/storico-profili). Lo snapshot BASE (il primo,
+    senza partite nuove proprie) NON ha questi campi: non rappresenta un periodo nuovo.
+    """
+    tasso_su_mosse, _ = _tassi_su_mosse(profilo)
+    snap = {
+        "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+        "partite": profilo.get("partite_analizzate", 0),
+        "mosse": profilo.get("mosse_totali", 0),
+        "tasso_errore_per_fase": dict(profilo.get("tasso_errore_per_fase", {})),
+        "tasso_su_mosse_per_tipo": tasso_su_mosse,
+        "percentuali_tattico": dict(profilo.get("percentuali_tattico", {})),
+        "file_inclusi": list(file_inclusi),
+    }
+    if profilo_periodo is not None:
+        periodo_tasso_su_mosse, _ = _tassi_su_mosse(profilo_periodo)
+        periodo_partite = profilo_periodo.get("partite_analizzate", 0)
+        snap.update({
+            "periodo_partite": periodo_partite,
+            "periodo_tasso_su_mosse_per_tipo": periodo_tasso_su_mosse,
+            "periodo_tasso_errore_per_fase": dict(
+                profilo_periodo.get("tasso_errore_per_fase", {})),
+            # Stesso guardrail anti-rumore del confronto (Tappa D): poche partite
+            # nel periodo -> punto "indicativo, non conclusivo".
+            "periodo_affidabile": periodo_partite >= GUARDRAIL_PARTITE,
+        })
+    return snap
+
+
+def _voce_confronto(genere, nome, tasso_storico, tasso_recente):
+    """
+    Una voce di confronto per un tema o una fase: delta = recente - storico (un tasso
+    d'errore che SCENDE = miglioramento). "stabile" se |delta| < SOGLIA_STABILE.
+    La chiave del nome e' "tema" o "fase" a seconda del genere.
+    """
+    delta = round(tasso_recente - tasso_storico, 1)
+    if abs(delta) < SOGLIA_STABILE:
+        tendenza = "stabile"
+    elif delta < 0:
+        tendenza = "migliorato"   # meno errori di prima
+    else:
+        tendenza = "peggiorato"
+    voce = {
+        genere: nome,             # chiave "tema" o "fase"
+        "tasso_storico": tasso_storico,
+        "tasso_recente": tasso_recente,
+        "delta": delta,
+        "tendenza": tendenza,
+    }
+    return voce
+
+
+def _confronto(profilo_recente, snapshot_storico):
+    """
+    Confronto ONESTO "partite nuove vs storico": per ogni tipo tattico RILEVANTE nel
+    profilo recente e per ogni fase, mette a confronto il tasso recente con quello
+    dello snapshot storico precedente. GUARDRAIL: se le partite nuove sono meno di
+    GUARDRAIL_PARTITE il confronto e' marcato "affidabile": false (con avvertenza),
+    ma le tendenze si mostrano comunque (indicative, non conclusive).
+    """
+    partite_nuove = profilo_recente.get("partite_analizzate", 0)
+    affidabile = partite_nuove >= GUARDRAIL_PARTITE
+
+    tasso_recente_tipo, _ = _tassi_su_mosse(profilo_recente)
+    tasso_storico_tipo = snapshot_storico.get("tasso_su_mosse_per_tipo", {})
+    perc_recente = profilo_recente.get("percentuali_tattico", {})
+
+    voci = []
+    # Temi tattici: solo i RILEVANTI nelle partite recenti (>= soglia).
+    for tipo in TIPI_TATTICI:
+        if perc_recente.get(tipo, 0.0) < SOGLIA_RILEVANZA:
+            continue
+        voci.append(_voce_confronto(
+            "tema", tipo,
+            tasso_storico_tipo.get(tipo, 0.0),
+            tasso_recente_tipo.get(tipo, 0.0)))
+
+    # Fasi: tutte e tre (il "dove" sbagli e' sempre informativo).
+    tasso_storico_fase = snapshot_storico.get("tasso_errore_per_fase", {})
+    tasso_recente_fase = profilo_recente.get("tasso_errore_per_fase", {})
+    for fase in FASI:
+        voci.append(_voce_confronto(
+            "fase", fase,
+            tasso_storico_fase.get(fase, 0.0),
+            tasso_recente_fase.get(fase, 0.0)))
+
+    confronto = {
+        "partite_nuove": partite_nuove,
+        "affidabile": affidabile,
+        "voci": voci,
+    }
+    if not affidabile:
+        confronto["avvertenza"] = (
+            f"Confronto basato su poche partite ({partite_nuove} < "
+            f"{GUARDRAIL_PARTITE}): indicativo, non conclusivo.")
+    return confronto
+
+
+def _aggiorna_e_confronta(profilo_cumulativo, cartella):
+    """
+    RILEVAZIONE PIGRA dei file nuovi + confronto onesto (Tappa D). A sola lettura
+    rispetto all'allenamento. Restituisce il confronto da esporre (o None) e lo
+    aggiorna su disco solo quando ci sono davvero partite nuove.
+
+      - Nessuno snapshot: crea lo snapshot-base col profilo cumulativo e tutti i file;
+        confronto None (non c'e' ancora niente con cui confrontare).
+      - File nuovi: costruisce il profilo delle SOLE partite nuove (anti-diluizione!)
+        e lo confronta con l'ultimo snapshot; poi salva un nuovo snapshot cumulativo.
+      - Nessun file nuovo: restituisce l'ultimo confronto salvato, senza ricalcolare
+        ne' creare snapshot duplicati.
+    """
+    storico = _carica_storico()
+    snapshots = storico["snapshot"]
+    file_presenti = _elenco_file_categorie(cartella)
+
+    # Primo avvio: nessuno snapshot -> creo la base, nessun confronto possibile.
+    if not snapshots:
+        snapshots.append(_snapshot_da_profilo(profilo_cumulativo, file_presenti))
+        storico["ultimo_confronto"] = None
+        _salva_storico(storico)
+        return None
+
+    ultimo = snapshots[-1]
+    file_storici = set(ultimo.get("file_inclusi", []))
+    file_nuovi = [f for f in file_presenti if f not in file_storici]
+
+    # Niente di nuovo: riuso l'ultimo confronto, nessuna scrittura.
+    if not file_nuovi:
+        return storico.get("ultimo_confronto")
+
+    # Profilo delle SOLE partite nuove vs lo snapshot storico (il cuore anti-diluizione).
+    profilo_nuove = costruisci_profilo(GIOCATORE, cartella=cartella,
+                                       solo_file=file_nuovi)
+    if profilo_nuove is None:
+        # I file nuovi non contengono partite del giocatore: aggiorno solo l'elenco
+        # file dell'ultimo snapshot (cosi' non li riconsidero) senza inventare un
+        # confronto, e tengo l'ultimo confronto valido.
+        ultimo["file_inclusi"] = file_presenti
+        _salva_storico(storico)
+        return storico.get("ultimo_confronto")
+
+    confronto = _confronto(profilo_nuove, ultimo)
+
+    # Nuovo snapshot cumulativo. Tengo file_inclusi SOLO sull'ultimo: lo tolgo dal
+    # precedente per non gonfiare il file con elenchi ripetuti. Passo anche il profilo
+    # delle SOLE partite nuove (profilo_nuove): lo snapshot salva cosi' i tassi DEL
+    # PERIODO (campi periodo_*) per il grafico anti-diluizione di /storico-profili.
+    ultimo.pop("file_inclusi", None)
+    snapshots.append(_snapshot_da_profilo(profilo_cumulativo, file_presenti,
+                                          profilo_periodo=profilo_nuove))
+    storico["ultimo_confronto"] = confronto
+    _salva_storico(storico)
+    return confronto
+
+
 class Esito(BaseModel):
     """Esito di un puzzle inviato dal frontend."""
     puzzle_id: str
@@ -736,21 +1382,24 @@ def lista_flussi():
 @app.post("/flusso/{nome}")
 def imposta_flusso(nome: str):
     """
-    Cambia il flusso attivo. Il flusso "errori" e' predisposto ma non ancora
-    implementato (verra' col punto 6): se richiesto, risponde 501 senza cambiare.
+    Cambia il flusso attivo. Per il flusso "errori" (punto 6 della visione), alla
+    prima attivazione segna errori_attivo=True e riempie la coda dai miei errori
+    (completati da rinforzi Lichess). La forma della risposta e' uguale per tutti i flussi.
     """
     if nome not in FLUSSI:
         return JSONResponse(status_code=404,
                             content={"errore": f"Flusso sconosciuto: {nome}"})
-    if nome not in FLUSSI_IMPLEMENTATI:
-        return JSONResponse(status_code=501, content={
-            "errore": "Il flusso 'errori' non e' ancora implementato "
-                      "(verra' col punto 6 della visione).",
-            "flusso": nome})
     _assicura_pronta()
     _sessione["flusso_attivo"] = nome
-    _salva_stato()
     f = _flusso(nome)
+    # Flusso "errori": attivalo e (se serve) riempi la coda dai miei errori.
+    if nome == "errori":
+        primo_ingresso = not f["errori_attivo"]
+        f["errori_attivo"] = True
+        # Riempi alla prima attivazione o quando non restano piu' puzzle da servire.
+        if primo_ingresso or (len(f["coda"]) - f["serviti"]) <= 0:
+            _riempi_coda_errori(f)
+    _salva_stato()
     logger.info("Flusso attivo cambiato in '%s'", nome)
     return {
         "flusso_attivo": nome,
@@ -825,6 +1474,61 @@ def progressi():
         "tendenza": _calcola_tendenza(f["snapshot_progresso"]),
         "riepilogo": _riepilogo_progressi(f),
     }
+
+
+@app.get("/profilo")
+def profilo_carenze():
+    """
+    REPORT DELLE CARENZE (punto 2 della visione): espone il profilo di debolezze
+    gia' calcolato da costruisci_profilo, ARRICCHITO (vedi _arricchisci_profilo) con
+    i tassi sulle mosse totali, la classificazione dei temi per rilevanza, una sintesi
+    onesta, la nota sul divario tra le fasi, il PIANO DI STUDIO (Tappa C) e il CONFRONTO
+    "partite nuove vs storico" (Tappa D). Non costruisce piano o coda: e' una pura
+    diagnosi a sola lettura dalle partite analizzate.
+    """
+    profilo = costruisci_profilo(GIOCATORE, cartella=PERCORSO_CATEGORIE)
+    if profilo is None:
+        return JSONResponse(
+            status_code=404,
+            content={"errore": f"Nessun profilo per {GIOCATORE}. "
+                               "Hai analizzato e arricchito le partite?"},
+        )
+    # Rilevazione pigra delle partite nuove + confronto onesto (vedi Tappa D).
+    confronto = _aggiorna_e_confronta(profilo, PERCORSO_CATEGORIE)
+    return _arricchisci_profilo(profilo, confronto=confronto)
+
+
+@app.get("/storico-profili")
+def storico_profili():
+    """
+    SERIE TEMPORALE dell'evoluzione dei tassi d'errore nel tempo, per il grafico
+    "Evoluzione nel tempo" (raffinamento del punto 4, sotto le carenze).
+
+    PRINCIPIO ANTI-DILUIZIONE (Tappa D): ogni punto porta i tassi DEL PERIODO (le
+    sole partite nuove di quello snapshot), NON i cumulativi: e' cosi' che si vede il
+    miglioramento vero, senza la diluizione del totale storico. Include percio' SOLO
+    gli snapshot che hanno i campi periodo_* (salta lo snapshot BASE, che non
+    rappresenta un periodo nuovo). Ordina per timestamp.
+
+    "ha_dati" e' True con >= 1 punto-periodo (cioe' >= 2 snapshot totali): sotto questa
+    soglia il frontend mostra uno stato vuoto onesto invece di un grafico con un solo
+    punto. SOLO lettura rispetto all'allenamento.
+    """
+    storico = _carica_storico()
+    punti = []
+    for snap in storico.get("snapshot", []):
+        # Salto il base e ogni snapshot senza i tassi di periodo.
+        if "periodo_tasso_su_mosse_per_tipo" not in snap:
+            continue
+        punti.append({
+            "timestamp": snap.get("timestamp"),
+            "periodo_partite": snap.get("periodo_partite", 0),
+            "affidabile": snap.get("periodo_affidabile", False),
+            "tasso_tipo": dict(snap.get("periodo_tasso_su_mosse_per_tipo", {})),
+            "tasso_fase": dict(snap.get("periodo_tasso_errore_per_fase", {})),
+        })
+    punti.sort(key=lambda p: p["timestamp"] or "")
+    return {"punti": punti, "ha_dati": len(punti) >= 1}
 
 
 @app.post("/scegli-tema/{tema}")

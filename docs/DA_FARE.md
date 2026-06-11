@@ -1,8 +1,11 @@
 # chess-ai — Cose da fare e da implementare
 
-> Stato del progetto: **Fase 4 completata** (sistema personale completo e funzionante).
+> Stato del progetto: **Fase 4 completata + punti 1, 6 e 2 della visione estesa** (sistema
+> personale completo; flussi separati; flusso `errori` popolato; report carenze + piano di
+> studio + confronto progressi anti-diluizione).
 > Questo documento elenca ciò che manca ancora, diviso per priorità.
-> Aggiornato al termine della sessione in cui è stata aggiunta la persistenza tra sessioni.
+> Aggiornato al termine della sessione in cui è stato implementato il punto 2 della visione
+> (report carenze, piano di studio a pesi relativi, snapshot nel tempo anti-diluizione).
 
 ---
 
@@ -26,8 +29,11 @@ Il sistema **personale** è completo e funzionante end-to-end:
   tempo, indicatore di tendenza "stai migliorando?" e tabella riassuntiva.
 - **Flussi separati** (punto 1 della visione estesa): `piano` / `temi` / `errori`, ciascuno
   con coda, fascia Elo adattiva e statistiche proprie; visti globali; persistenza a tre
-  stati con migrazione dal vecchio file; selettore di flusso nel frontend; flusso `errori`
-  predisposto (non ancora implementato).
+  stati con migrazione dal vecchio file; selettore di flusso nel frontend.
+- **Flusso `errori` implementato** (punto 6 della visione estesa): puzzle dai propri errori
+  veri, validati con Stockfish (gap ≥200, prof. 18), in sequenze forzate multi-mossa, con
+  rinforzo Lichess marcato a esaurimento. 1027 puzzle in `data/coda_errori_estesa.json`.
+  Vedi 5d più sotto.
 
 ---
 
@@ -119,6 +125,46 @@ Il sistema **personale** è completo e funzionante end-to-end:
 - Testato in `api/test_server.py`: indipendenza fasce tra flussi, persistenza dei tre
   stati, retrocompatibilità col vecchio file, visti globali, riepilogo complessivo.
 
+#### 5d. Punto 6 della visione — Puzzle dai propri errori ✅ FATTO
+> (Questo è il **punto 6 della visione estesa**, da non confondere con il "punto 6" interno
+> di questo documento qui sotto, che è la tassonomia temi.)
+- Il flusso `errori` (prima solo predisposto → 501) è ora **implementato e popolato**.
+- **Pipeline** (nessuna rianalisi delle partite: si parte dalle analisi già in
+  `data/analisi/`):
+  1. `ml/estrai_errori.py` — estrae le mie mosse sbagliate (colore + turno dal FEN), filtro
+     di sanità (±700cp), conta per soglia; **bullet escluso**. → 4604 candidati non-bullet ≥200.
+  2. `ml/valida_errori.py` — valida l'unicità con Stockfish MultiPV (gap ≥200, prof. 18),
+     `--campione`/`--batch`. → **1027 puzzle** tenuti (70% con soluzione corretta rispetto al
+     vecchio dato a prof. 15).
+  3. `ml/coda_errori.py` — formato-coda con **setup davanti** (`moves` = setup + soluzione),
+     verifica di coerenza (1027/1027 ok), `rating` ibrido dichiarato stima [1000–1300].
+  4. `ml/estendi_sequenze.py` — sequenze forzate multi-mossa (gap asimmetrico: mie ≥200,
+     difese ≥100; tetto 3 mosse). → 903×1mossa, 94×2, 30×3 (`data/coda_errori_estesa.json`).
+  5. `api/server.py` — tolto il 501; `_riempi_coda_errori` pesca prima i miei errori, poi
+     **rinforzo Lichess marcato** (`origine`); caricamento a cascata esteso→base→vuoto;
+     persistenza `errori_attivo`. Frontend: badge "📍 Tuo errore" / "♟ Rinforzo Lichess" /
+     "🧩 Combinazione (N mosse)".
+- **Test**: 61 in `api/test_server.py` + i test dei 4 moduli ml. Verificato dal vivo nel browser.
+- Dettagli completi in `docs/VISIONE_ESTESA.md` (punto 6).
+- **Nota onesta**: i miei errori sono per lo più tattiche secche → poche combinazioni lunghe
+  (è un dato vero, non un limite del codice; per le combinazioni profonde c'è il flusso `temi`).
+
+#### 5e. Punto 2 della visione — Report carenze + piano di studio ✅ FATTO
+- Sezione **"🩺 Le mie carenze"** (endpoint `GET /profilo`), in 4 tappe:
+  - **A** — report onesto: `tasso_su_mosse_per_tipo` (denominatore = mosse totali, dichiarato),
+    soglia di rilevanza ≥5% (esclude inchiodatura/infilata come non-problema), `sintesi` generata
+    dai numeri, nota fasi-vicine.
+  - **C** — piano di studio (C2+C3): **pesi relativi, NON minuti** (peso = tasso/tasso_dominante),
+    priorità alta/media/bassa, `progressione` (consiglio di metodo), `nota_posizionale` (il 38.5%
+    non-tattico non è coperto), pulsante "allenati su questo tema" → flusso `temi`.
+  - **D** — confronto progressi **anti-diluizione** (anticipo punto 4): profilo delle SOLE partite
+    nuove vs storico (mai cumulativo vs cumulativo), `data/storico_profili.json`, rilevazione pigra,
+    `solo_file` in `ml/profilo.py`, guardrail rumore <50 partite. Blocco "📈 Stai migliorando?".
+- **Test**: 89 verdi (incl. test anti-diluizione). Tutto di sola lettura rispetto all'allenamento.
+- Dettagli in `docs/VISIONE_ESTESA.md` (punto 2).
+- Raffinamenti futuri NON fatti: tasso-su-occasioni (denom. vero, vicino al punto 5); piano dinamico
+  pieno (ricalibro pesi sulle partite recenti) col punto 4 completo.
+
 ### 6. Tassonomia temi più ricca ✅ FATTO
 - ~~Ora ci sono 8 temi nei pulsanti.~~ Ampliati a **24 temi**, raggruppati in 3 categorie
   (**Tattiche** 11, **Matti** 6, **Finali** 7) in `TEMI_CATEGORIE` (`api/server.py`).
@@ -134,6 +180,48 @@ Il sistema **personale** è completo e funzionante end-to-end:
 - Il tema di ogni esito è dedotto dal `motivo_allenamento` del puzzle in coda.
 - Non-interferenza con l'adattività: sono **solo conteggi**, non toccano fascia/blocco.
 - Testato in `api/test_server.py` (tracciamento, percentuale, persistenza, non-interferenza).
+
+---
+
+## PRIORITÀ MEDIA — Miglioramenti del sistema personale (da uso reale)
+
+> Raccolti dopo aver usato il sistema. Dettaglio completo, con difficoltà e **decisioni
+> aperte**, in `docs/VISIONE_ESTESA.md` → "Miglioramenti del sistema personale" (gruppi
+> R / C / T). Diversi si sovrappongono col **punto 2** della visione (report carenze):
+> conviene affrontarli insieme.
+
+**Rifinitura (R) — bassa difficoltà:**
+- R1. Flusso `temi`: quando un tema si esaurisce, **proseguire** (salire di difficoltà o
+  continuare con l'adattività) invece di fermarsi. Riusa `_pesca_allargando` / rinforzo come
+  nel flusso errori.
+- R2. % "tema migliore/peggiore" = **primo colpo / tentati** (coerenza con la def. di successo).
+- R3. Rendere chiari i grafici "fascia Elo nel tempo" e "% primo colpo nel tempo" (assi,
+  legenda, spiegazione dell'85%).
+- R4. **Schermate distinte per flusso**: nel Piano non si vedono i temi liberi; ogni flusso
+  mostra solo i suoi dati.
+
+**Coaching (C) — media, lega col punto 2:**
+- C1. Flusso `piano`: tema **più definito e a rotazione** (etichetta visibile + cambio ogni
+  tot in base ai risolti al primo colpo). DECISIONE APERTA: ogni quanti puzzle e con quale
+  regola d'avanzamento.
+- C2. Consigliare su quali **temi liberi** concentrarsi in base alle carenze.
+- C3. **Piano di studio personalizzato** a punti prima dell'allenamento (quali temi, quanto
+  tempo, come variare). DECISIONE APERTA: il "tempo consigliato" deve derivare da un dato
+  reale (frequenza errore / tasso fallimento), non inventato.
+
+**Trasparenza e motore (T):**
+- T1. **Disclaimer alla prima partita** (cosa misura, che la difficoltà si adatta; tono
+  divulgativo). NOTA onesta: la segretezza lato client è debole — il disclaimer informa
+  l'utente, non protegge davvero l'algoritmo. Flag `disclaimer_visto`.
+- T2. **Nuovi tipi tattici** riconosciuti (estende `ml/tattica.py`): deviazione, attrazione,
+  scoperta, zwischenzug, sovraccarico… Beneficio anche sui puzzle-errore (rinforzi più
+  "simili"). Ogni tema aggiunto con test, uno per volta.
+- T3. **Capire cosa c'è nel "non tattico" (38.5%)**: scomporre la categoria-residuo per
+  capirne la composizione (LIVELLO 1, solo conteggio). Probabile divisione in: tattiche non
+  ancora riconosciute (→ T2), posizionale con soluzione netta (allenabile come i tattici,
+  LIVELLO 2), posizionale puro senza mossa netta (muro del punto 5, LIVELLO 3). I livelli 2/3
+  si decidono DOPO aver visto la composizione, non al buio. Onesto: non tutto è allenabile
+  coi puzzle.
 
 ---
 

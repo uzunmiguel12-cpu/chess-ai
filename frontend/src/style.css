@@ -12,6 +12,17 @@ h1 { font-size: 1.4rem; }
   margin: 1rem auto;
 }
 #stato { color: #555; font-size: 0.9rem; margin: 0.5rem 0; }
+/* Badge sull'origine del puzzle (flusso "errori"). */
+.badge-origine {
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  margin: 0.2rem 0 0.4rem;
+}
+.badge-origine.badge-errore { background: #fde2e2; color: #a33; }
+.badge-origine.badge-lichess { background: #e2ecfb; color: #36c; }
 #info { font-size: 1.1rem; margin: 1rem 0; min-height: 1.5rem; }
 button {
   font-size: 1rem;
@@ -171,3 +182,262 @@ button:hover { background: #386; }
 }
 .riepilogo-tabella th { font-weight: 600; color: #444; width: 55%; }
 .riepilogo-tabella td { color: #222; }
+
+/* --- Sezione "Le mie carenze" (report delle carenze, punto 2) --- */
+#toggle-carenze { background: #b5651d; margin-left: 0.5rem; }
+#toggle-carenze:hover { background: #944f14; }
+#carenze { margin-top: 2rem; }
+#carenze h2 { font-size: 1.2rem; }
+#carenze h3 { font-size: 1rem; color: #444; margin: 1.3rem 0 0.4rem; }
+.carenze-nota {
+  font-size: 0.82rem;
+  color: #777;
+  max-width: 600px;
+  margin: -0.3rem auto 0.8rem;
+  line-height: 1.4;
+}
+
+/* Sintesi in evidenza: la frase-diagnosi azionabile. */
+.carenze-sintesi {
+  max-width: 600px;
+  margin: 1rem auto;
+  padding: 0.8rem 1rem;
+  background: #fff6ec;
+  border-left: 4px solid #b5651d;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 0.98rem;
+  line-height: 1.5;
+  color: #3a2e22;
+}
+
+/* Liste "come" e "dove": una voce per riga. */
+.carenza-lista {
+  list-style: none;
+  padding: 0;
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+}
+.carenza-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.7rem;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid #eee;
+}
+.carenza-nome {
+  font-weight: 600;
+  text-transform: capitalize;
+  min-width: 8rem;
+}
+.carenza-num { color: #555; font-size: 0.9rem; }
+/* Temi sotto-soglia: grigi e smorzati (non sono un problema per questo giocatore). */
+.carenza-item.non-rilevante { opacity: 0.5; }
+.carenza-item.non-rilevante .carenza-nome { font-weight: 400; }
+/* Quota errori posizionali: messa a parte (non allenabile coi puzzle tattici). */
+.carenza-item.non-tattico { background: #f4f0fb; border-radius: 6px; }
+/* Debolezza principale (fase col tasso piu' alto): evidenziata. */
+.carenza-item.carenza-principale { background: #fdecec; border-radius: 6px; }
+.carenza-item.carenza-principale .carenza-nome { color: #a33; }
+.carenza-tag {
+  font-size: 0.74rem;
+  background: #e7e7e7;
+  color: #666;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+}
+.carenza-nota-piccola {
+  max-width: 600px;
+  margin: 0.5rem auto;
+  color: #777;
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+/* QUANTO: distribuzione qualita' mosse come barre compatte. */
+.qualita-lista {
+  list-style: none;
+  padding: 0;
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+}
+.qualita-riga {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0.6rem;
+}
+.qualita-nome { width: 5.5rem; font-size: 0.85rem; color: #444; }
+.qualita-barra {
+  flex: 1;
+  height: 0.8rem;
+  background: #eee;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.qualita-fill { display: block; height: 100%; background: #4a7; }
+.qualita-num { width: 6rem; text-align: right; font-size: 0.8rem; color: #666; }
+/* Colori per gravita': dal verde (best) al rosso (blunder). */
+.qualita-best { background: #2a8a4a; }
+.qualita-excellent { background: #4a7; }
+.qualita-good { background: #88b04b; }
+.qualita-inaccuracy { background: #e0b020; }
+.qualita-mistake { background: #e08020; }
+.qualita-blunder { background: #c0392b; }
+
+/* --- Piano di studio (Tappa C): la parte azionabile del report carenze --- */
+.piano-intro {
+  max-width: 600px;
+  margin: 0.2rem auto 0.6rem;
+  text-align: left;
+  font-size: 0.9rem;
+  color: #555;
+}
+.piano-lista {
+  list-style: decimal;
+  padding-left: 1.4rem;
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+}
+.piano-voce {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #eee;
+}
+.piano-voce-testa {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.piano-tema { font-weight: 600; text-transform: capitalize; }
+/* Etichetta colorata di priorita': alta (rosso), media (ambra), bassa (grigia). */
+.piano-priorita {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  color: #fff;
+}
+.piano-priorita.priorita-alta { background: #c0392b; }
+.piano-priorita.priorita-media { background: #e0a020; }
+.piano-priorita.priorita-bassa { background: #999; }
+.piano-dato {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+  color: #555;
+}
+.piano-allena {
+  margin-top: 0.4rem;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
+  background: #b5651d;
+}
+.piano-allena:hover { background: #944f14; }
+/* Progressione (consiglio di metodo) e nota posizionale (disclaimer onesto). */
+.piano-progressione {
+  max-width: 600px;
+  margin: 0.7rem auto 0.3rem;
+  text-align: left;
+  font-size: 0.9rem;
+  color: #3a2e22;
+}
+.piano-nota {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.8rem;
+  color: #777;
+  font-style: italic;
+}
+/* Freccetta di tendenza accanto al tema nel piano (Tappa D). */
+.piano-tendenza { font-size: 0.9rem; cursor: help; }
+
+/* --- Confronto nel tempo (Tappa D): partite recenti vs storico --- */
+#carenze h3 small { font-weight: 400; color: #888; font-size: 0.8rem; }
+.confronto-vuoto {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.9rem;
+  color: #666;
+  background: #f3f6fb;
+  border-left: 4px solid #9bb;
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+}
+.confronto-base {
+  max-width: 600px;
+  margin: 0.2rem auto 0.4rem;
+  text-align: left;
+  font-size: 0.85rem;
+  color: #555;
+}
+.confronto-avviso {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.82rem;
+  color: #8a6d1d;
+  background: #fff8e6;
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+}
+.confronto-lista {
+  list-style: none;
+  padding: 0;
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+}
+.confronto-voce {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 0.7rem;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid #eee;
+}
+.confronto-nome { font-weight: 600; text-transform: capitalize; }
+.confronto-genere {
+  font-weight: 400;
+  font-style: normal;
+  font-size: 0.72rem;
+  color: #999;
+  text-transform: uppercase;
+}
+.confronto-tassi { font-size: 0.9rem; color: #555; }
+.confronto-arrow { font-weight: 700; padding: 0 0.15rem; }
+.confronto-delta { font-size: 0.8rem; }
+/* Colori condivisi delle tendenze: verde = meglio, rosso = peggio, grigio = stabile. */
+.tend-migliorato { color: #2a8a4a; }
+.tend-peggiorato { color: #c0392b; }
+.tend-stabile { color: #999; }
+
+/* --- Evoluzione nel tempo (grafico anti-diluizione, raffinamento del punto 4) --- */
+.carenze-evoluzione { margin-top: 1rem; }
+/* Stato vuoto onesto: finche' non ci sono almeno due periodi da confrontare. */
+.evoluzione-vuoto {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.9rem;
+  color: #666;
+  background: #f3f6fb;
+  border-left: 4px solid #9bb;
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+}
+/* Riga esplicativa onesta sotto i grafici: tasso delle partite NUOVE, non cumulativo. */
+.evoluzione-nota {
+  max-width: 600px;
+  margin: 0.4rem auto 0;
+  color: #666;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}

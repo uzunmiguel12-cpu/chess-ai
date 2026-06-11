@@ -13,11 +13,14 @@
     <!-- Pulsanti dei temi: visibili solo quando il flusso "temi" e' attivo. -->
     <div id="temi"></div>
     <div id="stato">Caricamento...</div>
+    <!-- Badge sull'origine del puzzle (📍 tuo errore / ♟ rinforzo Lichess). -->
+    <div id="badge-origine" class="badge-origine" hidden></div>
     <div id="board"></div>
     <div id="info"></div>
     <div id="stats"></div>
     <button id="prossimo">Prossimo puzzle</button>
     <button id="toggle-progressi">📊 I miei progressi</button>
+    <button id="toggle-carenze">🩺 Le mie carenze</button>
 
     <section id="progressi" hidden>
       <h2>I miei progressi <span id="progressi-flusso" class="progressi-flusso"></span></h2>
@@ -46,6 +49,54 @@
       <p id="progressi-vuoto" class="progressi-vuoto" hidden>
         Ancora pochi dati: risolvi qualche puzzle per vedere i progressi.
       </p>
+    </section>
+
+    <!-- Sezione "Le mie carenze": REPORT DELLE CARENZE (punto 2 della visione).
+         Diagnosi onesta dal profilo (GET /profilo), separata dai flussi di gioco. -->
+    <section id="carenze" hidden>
+      <h2>Le mie carenze</h2>
+      <p class="carenze-nota">
+        Diagnosi onesta delle tue debolezze, ricavata dalle partite analizzate.
+        Non è il punteggio di una sessione: è il quadro di <em>come</em> e
+        <em>dove</em> sbagli più spesso.
+      </p>
+
+      <!-- 1. Sintesi in evidenza: la frase-diagnosi azionabile. -->
+      <div id="carenze-sintesi" class="carenze-sintesi"></div>
+
+      <!-- 2. COME sbagli (tipi tattici per tasso). 3. DOVE (fasi). 4. QUANTO (qualità). -->
+      <div id="carenze-come"></div>
+      <div id="carenze-dove"></div>
+      <div id="carenze-quanto"></div>
+
+      <!-- 5. PIANO DI STUDIO (Tappa C): la parte azionabile, dai temi rilevanti. -->
+      <div id="carenze-piano"></div>
+
+      <!-- 6. CONFRONTO nel tempo (Tappa D): partite recenti vs storico. -->
+      <div id="carenze-confronto"></div>
+
+      <!-- 7. EVOLUZIONE nel tempo (raffinamento del punto 4): grafico a linee dei
+           tassi d'errore DEL PERIODO (sole partite nuove di ogni snapshot), non i
+           cumulativi. Si popola con >= 2 periodi; con un solo snapshot resta vuoto. -->
+      <div id="carenze-evoluzione" class="carenze-evoluzione">
+        <h3>📉 Evoluzione nel tempo</h3>
+        <!-- Stato vuoto onesto: visibile finche' non ci sono almeno due periodi. -->
+        <p id="evoluzione-vuoto" class="evoluzione-vuoto" hidden>
+          Il grafico dell'evoluzione si popola man mano che giochi e ricarichi nuove
+          partite. Servono almeno due periodi per vedere una tendenza.
+        </p>
+        <!-- I due grafici (per tema e per fase): nascosti finche' non ci sono dati. -->
+        <div id="evoluzione-grafici" hidden>
+          <div class="grafico-box"><canvas id="grafico-evoluzione-temi"></canvas></div>
+          <div class="grafico-box"><canvas id="grafico-evoluzione-fasi"></canvas></div>
+          <p class="evoluzione-nota">
+            Ogni linea mostra il tasso d'errore delle partite <strong>nuove</strong> di
+            quel periodo (non il totale storico): è così che si vede il miglioramento
+            reale, senza la diluizione del cumulativo. I periodi con poche partite hanno
+            un punto vuoto e sono solo indicativi.
+          </p>
+        </div>
+      </div>
     </section>
 
     <script type="module" src="/src/main.js"></script>

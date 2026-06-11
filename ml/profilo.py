@@ -58,14 +58,26 @@ def _mosse_del_giocatore(dato_partita, nome_norm):
     return mosse
 
 
-def costruisci_profilo(nome, cartella=CARTELLA_CATEGORIE):
-    """Costruisce il profilo del giocatore. None se non compare in nessuna partita."""
+def costruisci_profilo(nome, cartella=CARTELLA_CATEGORIE, solo_file=None):
+    """
+    Costruisce il profilo del giocatore. None se non compare in nessuna partita.
+
+    Se `solo_file` e' None (default) considera TUTTI i file *.json della cartella
+    (comportamento storico, invariato). Se invece e' una lista di NOMI file (basename),
+    usa SOLO quelli: serve al confronto onesto "partite nuove vs storico" (Tappa D del
+    punto 2), dove il profilo va costruito sulle SOLE partite nuove per non diluire il
+    miglioramento nel cumulativo. I nomi non presenti si ignorano senza crashare.
+    """
     nome_norm = _normalizza(nome)
     if not os.path.isdir(cartella):
         logger.error("Cartella categorie non trovata: %s", cartella)
         return None
 
-    file_partite = sorted(glob.glob(os.path.join(cartella, "*.json")))
+    if solo_file is None:
+        file_partite = sorted(glob.glob(os.path.join(cartella, "*.json")))
+    else:
+        file_partite = [os.path.join(cartella, n) for n in sorted(solo_file)
+                        if os.path.exists(os.path.join(cartella, n))]
     logger.info("Cerco le partite di '%s' in %d file", nome, len(file_partite))
 
     tutte_mosse = []
