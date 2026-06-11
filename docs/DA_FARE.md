@@ -1,11 +1,10 @@
 # chess-ai — Cose da fare e da implementare
 
-> Stato del progetto: **Fase 4 completata + punti 1, 6 e 2 della visione estesa** (sistema
-> personale completo; flussi separati; flusso `errori` popolato; report carenze + piano di
-> studio + confronto progressi anti-diluizione).
+> Stato del progetto: **Fase 4 completata + tutti e sei i pezzi del coach toccati** (1,6,2,3,4
+> completi nella sostanza; 5 avviato con la prima diagnosi). Sistema personale completo e coerente.
 > Questo documento elenca ciò che manca ancora, diviso per priorità.
-> Aggiornato al termine della sessione in cui è stato implementato il punto 2 della visione
-> (report carenze, piano di studio a pesi relativi, snapshot nel tempo anti-diluizione).
+> Aggiornato al termine della sessione in cui sono stati fatti i punti 3 (coaching visivo), 4
+> (grafico evoluzione) e avviato il 5 (diagnosi "non converti il vantaggio").
 
 ---
 
@@ -164,6 +163,21 @@ Il sistema **personale** è completo e funzionante end-to-end:
 - Dettagli in `docs/VISIONE_ESTESA.md` (punto 2).
 - Raffinamenti futuri NON fatti: tasso-su-occasioni (denom. vero, vicino al punto 5); piano dinamico
   pieno (ricalibro pesi sulle partite recenti) col punto 4 completo.
+
+#### 5f. Punti 3, 4, 5 della visione ✅/🔶 FATTI in questa sessione
+- **Punto 3** ✅ (base) — coaching visivo: freccia verde sulla soluzione (chessground `drawable`) +
+  mossa in SAN leggibile, pulizia frecce tra puzzle. Futuro: freccia rossa dell'errore, replay
+  passo-passo multi-mossa.
+- **Punto 4** ✅ (sostanza) — confronto prima/dopo: già coperto dalla Tappa D del punto 2 + grafico
+  "📉 Evoluzione nel tempo" (tassi dei PERIODI, anti-diluizione; endpoint `/storico-profili`; stato
+  vuoto finché <2 snapshot). Futuro: piano dinamico pieno.
+- **Punto 5** 🔶 AVVIATO — diagnosi **"non converti il vantaggio"** (`ml/converti_vantaggio.py`,
+  endpoint `/diagnosi-conversione`, blocco "🎯 Conversione del vantaggio"). Distingue crollo (già
+  coperto) da **erosione** (calo graduale senza errore singolo — il pattern nascosto). Filtri onesti
+  sui dati reali: **no bullet** + **tetto picco +2÷+6** → da 388 grezze a **56 erosioni vere**.
+  Solo consapevolezza (mostra le partite da rivedere), niente puzzle. Le diagnosi **posizionali**
+  restano il MURO, non fatte (da affrontare solo se fattibili senza grande sforzo).
+- Dettagli in `docs/VISIONE_ESTESA.md` (punti 3/4/5).
 
 ### 6. Tassonomia temi più ricca ✅ FATTO
 - ~~Ora ci sono 8 temi nei pulsanti.~~ Ampliati a **24 temi**, raggruppati in 3 categorie

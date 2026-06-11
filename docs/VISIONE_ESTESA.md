@@ -171,28 +171,41 @@ mossa `fen`, `move_uci`, `best_move_uci`, `eval_prima/dopo`, `centipawn_loss`):
 > tema, vicino al punto 5); il **piano dinamico pieno** (ricalibrare i pesi sulle partite recenti,
 > non solo annotare la tendenza) — naturale completamento quando il **punto 4** sarà fatto per intero.
 
-### 3. Coaching visivo degli errori
-**Difficoltà: media (frontend).** Quando si sbaglia un puzzle, mostrare l'errore e la
-soluzione in modo intuitivo: frecce sulla scacchiera (chessground le supporta) e/o la
-sequenza corretta passo-passo. Lavoro di frontend, non concettualmente difficile.
+### 3. Coaching visivo degli errori ✅ FATTO (base)
+**Difficoltà: media (frontend).** Quando si sbaglia un puzzle (3 tentativi esauriti), una **freccia
+verde** (chessground `drawable/shapes`, nativa) mostra la mossa giusta dalla casa di partenza a quella
+d'arrivo, e il testo mostra la mossa in **notazione SAN leggibile** (helper `uciToSan`, fallback UCI).
+Pulizia delle frecce al puzzle successivo (no residui). Per i puzzle multi-mossa mostra la PRIMA mossa.
+> Raffinamenti futuri (NON fatti): **freccia rossa** della mia mossa sbagliata accanto alla verde
+> ("hai giocato questa, dovevi giocare quella"); **replay passo-passo** della sequenza per i multi-mossa.
 
-### 4. Confronto "prima vs dopo" (verifica dei progressi)
-**Difficoltà: media.** Salvare i profili nel tempo; quando il giocatore ricarica nuove
-partite, confrontare il nuovo profilo col precedente e mostrare cosa è migliorato e cosa
-no (es. "mediogioco: da 24% a 19% di errori"). Attenzione all'onestà statistica: con
-poche partite un cambiamento può essere rumore — il sistema deve dirlo.
+### 4. Confronto "prima vs dopo" (verifica dei progressi) ✅ FATTO (sostanza)
+**Difficoltà: media.** Realizzato in gran parte già con la **Tappa D del punto 2** (snapshot del profilo
+nel tempo, confronto anti-diluizione "partite nuove vs storico", guardrail del rumore, blocco
+"📈 Stai migliorando?") + il **grafico "📉 Evoluzione nel tempo"** (linee per tema/fase sui tassi DEI
+PERIODI, non cumulativi — anti-diluizione; stato-vuoto onesto finché non ci sono ≥2 snapshot).
+Endpoint `/storico-profili`. Tutto si popola man mano che si giocano e ricaricano partite nuove.
+> Raffinamenti futuri (NON fatti): **piano dinamico pieno** (ricalibrare i PESI del piano sulle partite
+> recenti, non solo annotare la tendenza).
 
-### 5. Diagnosi profonde e contestuali
-**Difficoltà: ALTA (il muro — alcune quasi-ricerca).** Questo è il pezzo più difficile e
-va affrontato DIAGNOSI PER DIAGNOSI, perché alcune sono fattibili e altre molto complesse:
-- **"Non converte il vantaggio"**: FATTIBILE. Si individuano le partite dove il giocatore
-  era in vantaggio secondo Stockfish e ha pareggiato/perso, tracciando l'evoluzione della
-  valutazione.
-- **"Sbaglia in posizioni chiuse/aperte"**: DIFFICILE. Richiede di classificare la natura
-  della posizione (struttura dei pedoni) — concetto posizionale, non geometrico.
+### 5. Diagnosi profonde e contestuali 🔶 AVVIATO (1 diagnosi fatta; il resto è il muro)
+**Difficoltà: ALTA (il muro — alcune quasi-ricerca).** Va affrontato DIAGNOSI PER DIAGNOSI.
+- **"Non converte il vantaggio"** ✅ **FATTA** (diagnosi-consapevolezza, sola lettura, niente puzzle).
+  `ml/converti_vantaggio.py` + endpoint `/diagnosi-conversione` + blocco "🎯 Conversione del vantaggio"
+  in "🩺 Le mie carenze". Misura le partite dove raggiungo un vantaggio e non lo converto (patta/sconfitta),
+  distinguendo **crollo** (un singolo errore ≥300cp — già coperto dal profilo errori) da **erosione**
+  (calo graduale SENZA un errore singolo — il pattern che gli altri strumenti NON vedono). Filtri di
+  onestà decisi sui dati reali: **bullet escluso** (lì si perde a tempo, non per tecnica) e **tetto al
+  picco +2÷+6** (sotto non è vantaggio chiaro; sopra +6 è matto facile, non tecnica di conversione).
+  Risultato pulito: da 388 "erosioni" grezze a **56 vere** (il percorso di filtraggio è esemplare —
+  ogni filtro ha ridotto il numero ma aumentato la verità). La diagnosi MOSTRA il pattern e le partite
+  da rivedere; NON genera puzzle (l'erosione è tecnica di conversione — semplificare, non rischiare,
+  migliorare i pezzi — non una mossa-soluzione validabile). 29 test modulo + endpoint.
+- **"Sbaglia in posizioni chiuse/aperte"** ❌ NON FATTA — DIFFICILE (il muro vero). Richiede di
+  classificare la natura posizionale (struttura dei pedoni), concetto non geometrico.
 - **"Combinazioni"** e altri concetti strategici: da valutare caso per caso.
-Va trattato come discussione dedicata, separando ciò che è calcolabile da ciò che non lo è
-senza un grande sforzo. Meglio poche diagnosi VERE e oneste che tante superficiali.
+Meglio poche diagnosi VERE e oneste che tante superficiali. Le diagnosi posizionali restano aperte,
+da affrontare solo se fattibili senza grande sforzo (e, se non lo sono, dire onestamente "non si fa").
 
 ---
 
@@ -335,31 +348,24 @@ Obiettivo: scoprire la composizione, perché probabilmente si divide in tre part
 
 ---
 
-## Stato attuale (Fase 4 completa + punti 1, 6 e 2 della visione)
+## Stato attuale (Fase 4 completa + TUTTI E SEI i pezzi del coach toccati)
 
 Funziona già end-to-end: analisi partite, profilo debolezze, piano automatico, scacchiera
 giocabile, difficoltà adattiva con gestione esaurimento, persistenza tra sessioni, 24 temi
-categorizzati, statistiche e grafici dei progressi (fascia Elo + % nel tempo + tendenza +
-tabella riassuntiva). Suite di test ampia, CI verde.
+categorizzati, statistiche e grafici dei progressi. Suite di test ampia, CI verde.
 
-**Punto 1 fatto**: i flussi sono separati (`piano` / `temi` / `errori`), ciascuno con
-coda, fascia Elo adattiva e statistiche proprie; visti globali; persistenza a tre stati con
-migrazione dal vecchio formato.
+I sei pezzi del coach (ordine 1 → 6 → 2 → 3 → 4 → 5):
+- **Punto 1** ✅ flussi separati (`piano`/`temi`/`errori`).
+- **Punto 6** ✅ puzzle dai propri errori, validati Stockfish, sequenze multi-mossa, rinforzo Lichess.
+- **Punto 2** ✅ report carenze + tassi + piano di studio (pesi relativi) + snapshot anti-diluizione.
+- **Punto 3** ✅ (base) coaching visivo: freccia verde sulla soluzione + SAN leggibile.
+- **Punto 4** ✅ (sostanza) confronto prima/dopo: Tappa D + grafico evoluzione (delta, non cumulativi).
+- **Punto 5** 🔶 AVVIATO: diagnosi "non converti il vantaggio" fatta (56 erosioni vere, no bullet,
+  picco +2÷+6); le diagnosi posizionali restano il muro, aperte.
 
-**Punto 6 fatto**: il flusso `errori` è **implementato e popolato**. Pipeline a tappe:
-estrazione dei miei errori dalle analisi (bullet escluso) → validazione di unicità con
-Stockfish in MultiPV (gap ≥200, prof. 18) → 1027 puzzle "veri" → formato-coda con setup +
-rating stimato → estensione a sequenze forzate multi-mossa (903 da 1 mossa, 94 da 2, 30 da
-3) → aggancio al flusso con rinforzo Lichess marcato quando gli errori si esauriscono.
-Verificato dal vivo. Moduli: `ml/estrai_errori.py`, `ml/valida_errori.py`,
-`ml/coda_errori.py`, `ml/estendi_sequenze.py`; dati: `data/coda_errori_estesa.json`.
+Raffinamenti futuri annotati (non urgenti): freccia rossa dell'errore (p.3), piano dinamico pieno
+(p.4), tasso-su-occasioni (p.2), diagnosi posizionali (p.5, il muro), più i miglioramenti R/C/T e T3.
 
-**Punto 2 fatto** (esteso): sezione **"🩺 Le mie carenze"** con report onesto (tassi-sulle-mosse
-+ soglia di rilevanza + sintesi), **piano di studio** a pesi relativi (no minuti finti, con
-pulsante "allenati su questo tema"), e blocco **"📈 Stai migliorando?"** anti-diluizione (confronto
-partite-nuove-vs-storico con guardrail del rumore). Endpoint `GET /profilo`;
-`data/storico_profili.json`. Include la parte azionabile di C2/C3 e un anticipo del punto 4.
-
-Prossimo passo (ordine 1 → 6 → 2 → **3** → 4 → 5): **punto 3** — coaching visivo degli errori
-(frecce sulla scacchiera + sequenza corretta passo-passo quando si sbaglia un puzzle). Difficoltà
-media, lavoro di frontend; chessground supporta già le frecce.
+Possibile prossimo passo: scegliere tra i raffinamenti sopra, i miglioramenti R/C/T (rifiniture
+d'uso), o iniziare a guardare la **Fase 5** (multi-utente). Nessuno è urgente: il sistema personale
+è completo e coerente.

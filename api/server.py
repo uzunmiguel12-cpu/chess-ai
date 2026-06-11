@@ -51,6 +51,7 @@ for p in (_RAG, _ML):
 
 from piano import costruisci_piano  # noqa: E402
 from profilo import costruisci_profilo, TIPI_TATTICI, FASI  # noqa: E402
+from converti_vantaggio import diagnosi_conversione  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1529,6 +1530,22 @@ def storico_profili():
         })
     punti.sort(key=lambda p: p["timestamp"] or "")
     return {"punti": punti, "ha_dati": len(punti) >= 1}
+
+
+@app.get("/diagnosi-conversione")
+def diagnosi_conversione_endpoint():
+    """
+    DIAGNOSI "non converti il vantaggio" (prima diagnosi del punto 5 della visione).
+
+    Misura sulle partite analizzate quanto spesso NON converto un vantaggio chiaro,
+    distinguendo CROLLI (un singolo errore, gia' coperto dall'allenamento errori) ed
+    EROSIONI (vantaggio sciolto gradualmente, SENZA un errore singolo: il pattern che
+    gli altri strumenti non vedono). E' SOLO consapevolezza: niente puzzle, perche'
+    l'erosione non ha una mossa-soluzione validabile. SOLA LETTURA: non tocca i flussi.
+
+    Soglia 200 centipawn (= vantaggio +2) di default, gia' scelta sui dati reali.
+    """
+    return diagnosi_conversione()
 
 
 @app.post("/scegli-tema/{tema}")

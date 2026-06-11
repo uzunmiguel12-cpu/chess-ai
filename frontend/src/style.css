@@ -441,3 +441,103 @@ button:hover { background: #386; }
   font-size: 0.8rem;
   line-height: 1.4;
 }
+
+/* --- Conversione del vantaggio (prima diagnosi del punto 5) --- */
+.carenze-conversione { margin-top: 1.2rem; }
+/* Frase di sintesi onesta, generata dai numeri. */
+.conv-sintesi {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #444;
+}
+/* Nota sull'esclusione del bullet, discreta dentro la frase di sintesi. */
+.conv-bullet-nota { font-size: 0.82rem; color: #888; font-style: italic; }
+/* Nota sul tetto al picco (erosioni oltre +6 escluse), stesso stile discreto. */
+.conv-tetto-nota { font-size: 0.82rem; color: #888; font-style: italic; }
+.conv-vuoto {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.9rem;
+  color: #666;
+  background: #f3f6fb;
+  border-left: 4px solid #9bb;
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+}
+/* Numero EROSIONE in evidenza: e' il dato chiave (il valore aggiunto). */
+.conv-evidenza {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  max-width: 600px;
+  margin: 0.6rem auto;
+  padding: 0.6rem 0.9rem;
+  background: #fdf2f2;
+  border-left: 4px solid #c0392b;
+  border-radius: 6px;
+}
+.conv-evidenza-num {
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #c0392b;
+}
+.conv-evidenza-eti { font-size: 0.9rem; color: #8a4b46; }
+/* Riga di metodo: l'erosione e' tecnica, non un esercizio tattico. */
+.conv-nota {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.84rem;
+  color: #666;
+  line-height: 1.45;
+}
+.conv-avviso {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.82rem;
+  color: #8a6d1d;
+  background: #fff8e6;
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+}
+.conv-lista-intro {
+  max-width: 600px;
+  margin: 0.6rem auto 0.2rem;
+  text-align: left;
+  font-size: 0.85rem;
+  color: #555;
+}
+.conv-lista {
+  list-style: none;
+  padding: 0;
+  max-width: 600px;
+  margin: 0.2rem auto;
+  text-align: left;
+}
+.conv-voce {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #eee;
+  font-size: 0.88rem;
+}
+.conv-vantaggio { font-weight: 600; color: #2a8a4a; }
+.conv-arrow { color: #999; }
+.conv-esito { font-weight: 600; text-transform: capitalize; }
+/* Sconfitta in rosso, patta in grigio-ambra: a colpo d'occhio quanto fa male. */
+.conv-sconfitta .conv-esito { color: #c0392b; }
+.conv-patta .conv-esito { color: #8a6d1d; }
+.conv-file {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: #999;
+  font-family: monospace;
+}

@@ -30,6 +30,7 @@ from server import (
     _crea_snapshot, _calcola_tendenza, _riepilogo_progressi, _riepilogo_complessivo,
     _carica_puzzle_errori, _riempi_coda_errori,
     profilo_carenze, _arricchisci_profilo, storico_profili,
+    diagnosi_conversione_endpoint,
 )
 
 
@@ -1321,3 +1322,33 @@ def test_storico_profili_periodo_poche_partite_non_affidabile(ambiente):
     profilo_carenze()
     r = storico_profili()
     assert r["punti"][0]["affidabile"] is False
+
+
+# --- Diagnosi "non converti il vantaggio" (punto 5): /diagnosi-conversione ---
+
+def test_diagnosi_conversione_endpoint(ambiente, monkeypatch):
+    """L'endpoint chiama diagnosi_conversione e ne restituisce il dizionario."""
+    finto = {
+        "soglia": 200,
+        "partite_con_vantaggio": 100,
+        "non_convertite": 40,
+        "tasso_non_conversione": 40.0,
+        "crollo": {"n": 25, "perc": 62.5},
+        "erosione": {"n": 15, "perc": 37.5},
+        "partite_erosione": [
+            {"fonte_file": "x.json", "picco_vantaggio": 300, "risultato": "patta",
+             "mossa_del_picco": 20, "eval_fine": 150, "n_mosse": 40},
+        ],
+        "affidabile": False,
+        "partite_bullet_escluse": 1563,
+        "escludi_bullet": True,
+    }
+    # Patcho il nome importato nel namespace del server (non l'originale del modulo).
+    monkeypatch.setattr(server, "diagnosi_conversione", lambda *a, **k: finto)
+    r = diagnosi_conversione_endpoint()
+    assert r == finto
+    assert r["erosione"]["n"] == 15
+    assert r["partite_erosione"][0]["fonte_file"] == "x.json"
+    # I campi informativi sul bullet passano attraverso l'endpoint.
+    assert r["partite_bullet_escluse"] == 1563
+    assert r["escludi_bullet"] is True

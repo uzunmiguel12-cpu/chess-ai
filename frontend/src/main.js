@@ -70,6 +70,7 @@ const elCarenzeDove = document.getElementById('carenze-dove');
 const elCarenzeQuanto = document.getElementById('carenze-quanto');
 const elCarenzePiano = document.getElementById('carenze-piano');
 const elCarenzeConfronto = document.getElementById('carenze-confronto');
+const elCarenzeConversione = document.getElementById('carenze-conversione');
 const elEvoluzioneVuoto = document.getElementById('evoluzione-vuoto');
 const elEvoluzioneGrafici = document.getElementById('evoluzione-grafici');
 const elProgressiVuoto = document.getElementById('progressi-vuoto');
@@ -727,6 +728,121 @@ function renderCarenze(p) {
   // 7. EVOLUZIONE nel tempo: grafico dei tassi DEL PERIODO (raffinamento punto 4).
   //    Usa gli stessi temi rilevanti del report, cosi' le linee combaciano col resto.
   aggiornaEvoluzione(p.temi_rilevanti || []);
+
+  // 8. CONVERSIONE DEL VANTAGGIO: diagnosi "non converti" (punto 5). Indipendente
+  //    dal profilo: ha la sua fonte dati (GET /diagnosi-conversione).
+  aggiornaConversione();
+}
+
+// --- Conversione del vantaggio (prima diagnosi del punto 5) ---
+// SOLO consapevolezza: mostra il pattern "non converti il vantaggio", separando i
+// CROLLI (gia' coperti dall'allenamento errori) dalle EROSIONI (vantaggio sciolto
+// gradualmente, il pattern che gli altri strumenti non vedono). Niente puzzle:
+// l'erosione non ha una mossa-soluzione da allenare, e' solo da capire.
+
+// Centipawn -> stringa pedoni con segno ("+2", "+15.4", "-3.3").
+function centipawnPedoni(cp) {
+  const v = (cp || 0) / 100;
+  const segno = v > 0 ? '+' : '';
+  // Interi netti senza decimali (+2), il resto con un decimale (+2.5).
+  return `${segno}${Number.isInteger(v) ? v : v.toFixed(1)}`;
+}
+
+// Scarica la diagnosi di conversione e ridisegna il blocco.
+async function aggiornaConversione() {
+  try {
+    const r = await fetch(`${BACKEND}/diagnosi-conversione`);
+    if (!r.ok) { elCarenzeConversione.innerHTML = ''; return; }
+    renderConversione(await r.json());
+  } catch (err) {
+    console.error('Errore caricamento conversione:', err);
+    elCarenzeConversione.innerHTML = '';
+  }
+}
+
+// Disegna il blocco "🎯 Conversione del vantaggio".
+function renderConversione(d) {
+  const titolo = '<h3>🎯 Conversione del vantaggio</h3>';
+
+  // Nessun vantaggio misurato: stato vuoto onesto invece di numeri finti.
+  if (!d || !d.partite_con_vantaggio) {
+    elCarenzeConversione.innerHTML =
+      `${titolo}<p class="conv-vuoto">Non ci sono ancora abbastanza partite
+        analizzate per misurare come converti i vantaggi.</p>`;
+    return;
+  }
+
+  const minPedoni = centipawnPedoni(d.picco_min);            // es. "+2"
+  const maxPedoni = centipawnPedoni(d.picco_max);            // es. "+6"
+  const N = d.partite_con_vantaggio;
+  const M = d.non_convertite;
+  const X = d.tasso_non_conversione;
+  const K = d.crollo.n;
+  const E = d.erosione.n;
+  const T = d.erosioni_sopra_tetto_escluse || 0;
+
+  // Frase di sintesi ONESTA, generata dai numeri. La nota sul bullet appare solo
+  // se l'esclusione e' attiva (e' il default del backend).
+  const notaBullet = d.escludi_bullet
+    ? ' <span class="conv-bullet-nota">(escluse le partite bullet, dove si perde a tempo)</span>' : '';
+  // Nota sul TETTO AL PICCO: appare solo se davvero abbiamo escluso erosioni oltre +6.
+  const notaTetto = T
+    ? ` <span class="conv-tetto-nota">(escluse anche ${T} erosioni da vantaggi oltre
+        ${maxPedoni}: lì è matto facile, non tecnica di conversione)</span>` : '';
+  // Considero solo i vantaggi DECISIVI ma da convertire con tecnica (tra +2 e +6):
+  // sotto non è "vantaggio chiaro", sopra è già vinto in modo banale / matto imminente.
+  const sintesi =
+    `Considero i vantaggi decisivi ma non banali, tra <strong>${minPedoni}</strong> e
+     <strong>${maxPedoni}</strong> — quelli che richiedono tecnica per convertire
+     (sotto non è vantaggio chiaro, sopra è già vinto): li raggiungi in
+     <strong>${N}</strong> partite${notaBullet}${notaTetto};
+     non li converti in <strong>${M}</strong> (${X}%). Di queste,
+     <strong>${K}</strong> sono <em>crolli</em> (un singolo errore — già coperti
+     dall'allenamento errori) e <strong>${E}</strong> sono <em>erosioni</em>:
+     vantaggio sciolto gradualmente, <strong>senza</strong> un errore singolo.
+     Le erosioni sono il pattern che gli altri strumenti non vedono.`;
+
+  // Numero EROSIONE in evidenza: e' il dato chiave (il valore aggiunto).
+  const evidenza =
+    `<div class="conv-evidenza">
+       <span class="conv-evidenza-num">${E}</span>
+       <span class="conv-evidenza-eti">erosioni (${d.erosione.perc}% delle non-conversioni)</span>
+     </div>`;
+
+  // Riga di metodo: l'erosione e' tecnica di conversione, non un esercizio tattico.
+  const nota =
+    `<p class="conv-nota">L'erosione è <strong>tecnica di conversione</strong>
+       (semplificare, non rischiare, migliorare i pezzi): non si allena coi puzzle
+       tattici — è consapevolezza, non un esercizio.</p>`;
+
+  // Banner onesto se il campione di erosioni è piccolo.
+  const avviso = !d.affidabile
+    ? `<p class="conv-avviso">⚠️ Campione piccolo (${E} erosioni): indicativo,
+        non ancora un pattern solido.</p>`
+    : '';
+
+  // Lista delle prime erosioni da rivedere su Chess.com (da che vantaggio a che esito).
+  const erosioni = (d.partite_erosione || []).slice(0, 15);
+  const righe = erosioni.map((p) => {
+    const picco = centipawnPedoni(p.picco_vantaggio);
+    const esito = p.risultato === 'patta' ? 'patta' : 'sconfitta';
+    return `<li class="conv-voce conv-${esito}">
+        <span class="conv-vantaggio">da ${picco}</span>
+        <span class="conv-arrow">→</span>
+        <span class="conv-esito">${esito}</span>
+        <span class="conv-file">${p.fonte_file}</span>
+      </li>`;
+  }).join('');
+  const lista = righe
+    ? `<p class="conv-lista-intro">Le erosioni più grosse, da rivedere
+         (cerca queste partite su Chess.com):</p>
+       <ul class="conv-lista">${righe}</ul>`
+    : '';
+
+  elCarenzeConversione.innerHTML =
+    `${titolo}
+     <p class="conv-sintesi">${sintesi}</p>
+     ${evidenza}${nota}${avviso}${lista}`;
 }
 
 // Etichetta leggibile del peso relativo di una voce rispetto al tema dominante.
