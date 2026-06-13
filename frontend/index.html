@@ -8,48 +8,80 @@
   </head>
   <body>
     <h1>Allenamento puzzle personalizzato</h1>
-    <!-- Selettore del flusso di allenamento (piano / temi / errori). -->
+    <!-- Selettore del flusso di allenamento (piano / temi / errori).
+         Sempre visibile: e' il modo per cambiare schermata. -->
     <div id="flussi"></div>
-    <!-- Pulsanti dei temi: visibili solo quando il flusso "temi" e' attivo. -->
-    <div id="temi"></div>
-    <div id="stato">Caricamento...</div>
-    <!-- Badge sull'origine del puzzle (📍 tuo errore / ♟ rinforzo Lichess). -->
-    <div id="badge-origine" class="badge-origine" hidden></div>
-    <div id="board"></div>
-    <div id="info"></div>
-    <div id="stats"></div>
-    <button id="prossimo">Prossimo puzzle</button>
-    <button id="toggle-progressi">📊 I miei progressi</button>
-    <button id="toggle-carenze">🩺 Le mie carenze</button>
 
-    <section id="progressi" hidden>
-      <h2>I miei progressi <span id="progressi-flusso" class="progressi-flusso"></span></h2>
-      <p class="progressi-nota-flusso">
-        Le statistiche e i grafici qui sotto si riferiscono al <strong>flusso attivo</strong>.
-      </p>
+    <!-- TRE SCHERMATE-FLUSSO (Tappa 1a di R4): solo il pannello del flusso
+         attivo e' visibile; gli altri due restano nascosti. La scacchiera NON
+         vive nei pannelli: e' unica e condivisa, nella zona qui sotto. -->
+    <section id="pannello-piano" class="pannello-flusso">
+      <p class="pannello-intestazione">📋 <strong>Piano (dalle tue debolezze)</strong>
+        — esercizi scelti automaticamente su dove sbagli di più.</p>
+      <!-- Segnaposto: l'estratto delle carenze arrivera' in una tappa successiva. -->
+      <div id="piano-estratto-carenze"></div>
+      <!-- Toggle progressi del pannello: apre l'UNICA sezione condivisa qui sotto. -->
+      <button class="toggle-progressi">📊 I miei progressi</button>
 
-      <!-- Indicatore onesto "stai migliorando?": tendenza della fascia Elo. -->
-      <div id="indicatore-tendenza" class="indicatore-tendenza"></div>
-
-      <!-- Tabella riassuntiva (totali, % storica, Elo iniziale/attuale, temi). -->
-      <div id="riepilogo-box" class="riepilogo-box"></div>
-
-      <!-- Grafico 1: % di successo al primo colpo nel tempo (dagli snapshot). -->
-      <div class="grafico-box">
-        <canvas id="grafico-primo-colpo"></canvas>
-        <p class="grafico-nota">
-          Nota: questa percentuale tende a stabilizzarsi intorno all'<strong>85%</strong>
-          per via della difficoltà adattiva — quando vai bene la fascia Elo sale e i
-          puzzle diventano più difficili, riportando il successo verso quel valore.
+      <!-- Sezione progressi: UNA SOLA per tutta la pagina (canvas e id unici).
+           Il JS la sposta dentro il pannello del flusso attivo quando serve;
+           parte nel pannello piano perche' e' il flusso di default. -->
+      <section id="progressi" hidden>
+        <h2>I miei progressi <span id="progressi-flusso" class="progressi-flusso"></span></h2>
+        <p class="progressi-nota-flusso">
+          Le statistiche e i grafici qui sotto si riferiscono al <strong>flusso attivo</strong>.
         </p>
-      </div>
 
-      <div class="grafico-box"><canvas id="grafico-elo"></canvas></div>
-      <div class="grafico-box"><canvas id="grafico-temi"></canvas></div>
-      <p id="progressi-vuoto" class="progressi-vuoto" hidden>
-        Ancora pochi dati: risolvi qualche puzzle per vedere i progressi.
-      </p>
+        <!-- Indicatore onesto "stai migliorando?": tendenza della fascia Elo. -->
+        <div id="indicatore-tendenza" class="indicatore-tendenza"></div>
+
+        <!-- Tabella riassuntiva (totali, % storica, Elo iniziale/attuale, temi). -->
+        <div id="riepilogo-box" class="riepilogo-box"></div>
+
+        <!-- Grafico 1: % di successo al primo colpo nel tempo (dagli snapshot). -->
+        <div class="grafico-box">
+          <canvas id="grafico-primo-colpo"></canvas>
+          <p class="grafico-nota">
+            Nota: questa percentuale tende a stabilizzarsi intorno all'<strong>85%</strong>
+            per via della difficoltà adattiva — quando vai bene la fascia Elo sale e i
+            puzzle diventano più difficili, riportando il successo verso quel valore.
+          </p>
+        </div>
+
+        <div class="grafico-box"><canvas id="grafico-elo"></canvas></div>
+        <div class="grafico-box"><canvas id="grafico-temi"></canvas></div>
+        <p id="progressi-vuoto" class="progressi-vuoto" hidden>
+          Ancora pochi dati: risolvi qualche puzzle per vedere i progressi.
+        </p>
+      </section>
     </section>
+    <section id="pannello-temi" class="pannello-flusso" hidden>
+      <p class="pannello-intestazione">🎯 <strong>Temi liberi</strong>
+        — scegli tu su cosa allenarti.</p>
+      <!-- Pulsanti dei temi: vivono DENTRO il pannello, quindi compaiono solo
+           quando il flusso "temi" e' attivo. -->
+      <div id="temi"></div>
+      <button class="toggle-progressi">📊 I miei progressi</button>
+    </section>
+    <section id="pannello-errori" class="pannello-flusso" hidden>
+      <p class="pannello-intestazione">🛠️ <strong>Dai miei errori</strong>
+        — rivedi le posizioni dove hai sbagliato.</p>
+      <button class="toggle-progressi">📊 I miei progressi</button>
+    </section>
+
+    <!-- ZONA SCACCHIERA CONDIVISA: una sola scacchiera per tutti i flussi,
+         sempre subito sotto il pannello attivo. -->
+    <div id="zona-scacchiera">
+      <div id="stato">Caricamento...</div>
+      <!-- Badge sull'origine del puzzle (📍 tuo errore / ♟ rinforzo Lichess). -->
+      <div id="badge-origine" class="badge-origine" hidden></div>
+      <div id="board"></div>
+      <div id="info"></div>
+      <div id="stats"></div>
+      <button id="prossimo">Prossimo puzzle</button>
+    </div>
+
+    <button id="toggle-carenze">🩺 Le mie carenze</button>
 
     <!-- Sezione "Le mie carenze": REPORT DELLE CARENZE (punto 2 della visione).
          Diagnosi onesta dal profilo (GET /profilo), separata dai flussi di gioco. -->

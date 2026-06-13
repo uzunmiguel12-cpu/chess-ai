@@ -95,6 +95,61 @@ button:hover { background: #386; }
 }
 .flussi-totale { width: 100%; font-size: 0.8rem; color: #777; margin-top: 0.2rem; }
 
+/* --- Schermate-flusso (Tappa 1a di R4) --- */
+/* Solo il pannello del flusso attivo e' visibile (gli altri hanno [hidden]);
+   la scacchiera condivisa (#zona-scacchiera) sta sempre subito sotto. */
+.pannello-flusso { margin: 0.5rem 0 0; }
+.pannello-intestazione {
+  max-width: 600px;
+  margin: 0.4rem auto 0.8rem;
+  padding: 0.55rem 0.9rem;
+  background: #f3f6fb;
+  border-left: 4px solid #3a6ea5;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: #2a3550;
+}
+
+/* --- Estratto carenze nel pannello Piano (Tappa 2 di R4) --- */
+/* Blocchetto compatto debolezza -> esercizio: NON e' il report completo. */
+.piano-estratto {
+  max-width: 600px;
+  margin: 0.4rem auto 0.6rem;
+  text-align: left;
+  font-size: 0.9rem;
+}
+.estratto-intro { margin: 0 0 0.3rem; color: #555; }
+.estratto-lista { list-style: none; padding: 0; margin: 0 0 0.4rem; }
+.estratto-voce {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid #eee;
+}
+.estratto-tema { font-weight: 600; text-transform: capitalize; }
+.estratto-dato { color: #a33; font-size: 0.85rem; }
+/* Link discreto al report completo (pulsante con aspetto di link). */
+.estratto-link {
+  background: none;
+  color: #3a6ea5;
+  padding: 0.2rem 0;
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+.estratto-link:hover { background: none; color: #2a527c; }
+/* Stato neutro quando il profilo non c'e' o non ci sono temi rilevanti. */
+.estratto-vuoto {
+  max-width: 600px;
+  margin: 0.4rem auto 0.6rem;
+  text-align: left;
+  font-size: 0.85rem;
+  color: #888;
+  font-style: italic;
+}
+
 /* --- Pulsanti per la scelta del tema --- */
 #temi {
   margin: 1rem 0;
@@ -136,8 +191,9 @@ button:hover { background: #386; }
 }
 
 /* --- Sezione "I miei progressi" --- */
-#toggle-progressi { background: #5a6; margin-left: 0.5rem; }
-#toggle-progressi:hover { background: #485; }
+/* Toggle nei pannelli-flusso: uno per pannello, stessa sezione condivisa. */
+.toggle-progressi { background: #5a6; margin: 0.4rem 0; }
+.toggle-progressi:hover { background: #485; }
 #progressi { margin-top: 2rem; }
 .progressi-flusso { font-size: 0.9rem; font-weight: 400; color: #3a6ea5; }
 .progressi-nota-flusso { font-size: 0.82rem; color: #777; margin: -0.3rem 0 0.8rem; }

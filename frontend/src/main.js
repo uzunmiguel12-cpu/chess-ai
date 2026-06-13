@@ -60,10 +60,17 @@ const elProssimo = document.getElementById('prossimo');
 const elStats = document.getElementById('stats');
 const elTemi = document.getElementById('temi');
 const elFlussi = document.getElementById('flussi');
-const elToggleProg = document.getElementById('toggle-progressi');
+// Pannelli-schermata dei tre flussi (Tappa 1a di R4): solo quello del flusso
+// attivo e' visibile; la scacchiera resta unica e condivisa sotto di esso.
+const elPannelli = {
+  piano: document.getElementById('pannello-piano'),
+  temi: document.getElementById('pannello-temi'),
+  errori: document.getElementById('pannello-errori'),
+};
 const elProgressi = document.getElementById('progressi');
 const elToggleCarenze = document.getElementById('toggle-carenze');
 const elCarenze = document.getElementById('carenze');
+const elPianoEstratto = document.getElementById('piano-estratto-carenze');
 const elCarenzeSintesi = document.getElementById('carenze-sintesi');
 const elCarenzeCome = document.getElementById('carenze-come');
 const elCarenzeDove = document.getElementById('carenze-dove');
@@ -337,6 +344,45 @@ function onMossaGiocatore(orig, dest) {
 
 // --- Selettore dei flussi (piano / temi / errori) ---
 
+// Sposta l'UNICA sezione progressi dentro il pannello del flusso indicato.
+// La sezione (e i suoi canvas) esiste una sola volta nel DOM: niente id
+// duplicati, stessa aggiornaProgressi — cambia solo il pannello che la ospita.
+function agganciaProgressiAlPannello(nome) {
+  const pannello = elPannelli[nome];
+  if (pannello && elProgressi && elProgressi.parentElement !== pannello) {
+    pannello.appendChild(elProgressi);
+  }
+}
+
+// Mostra SOLO il pannello-schermata del flusso indicato e nasconde gli altri
+// due. I controlli specifici di un flusso (es. i pulsanti dei temi) vivono
+// dentro il rispettivo pannello, quindi compaiono/spariscono di conseguenza.
+function mostraSchermataFlusso(nome) {
+  Object.entries(elPannelli).forEach(([n, el]) => {
+    if (el) el.hidden = n !== nome;
+  });
+  // La sezione progressi segue il pannello attivo, cosi' se e' aperta resta
+  // visibile anche dopo il cambio flusso (i dati li aggiorna chi cambia flusso).
+  agganciaProgressiAlPannello(nome);
+}
+
+// Azzera COMPLETAMENTE lo stato visivo e logico della scacchiera, come a
+// inizio di un nuovo puzzle: niente frecce-soluzione, niente evidenziazioni,
+// niente contatori residui. Va chiamata al cambio flusso, PRIMA di caricare
+// il puzzle del nuovo flusso: la schermata non deve ereditare NULLA.
+function pulisciScacchiera() {
+  tentativi = 0;
+  esitoInviato = false;
+  soluzione = [];
+  puzzleCorrente = null;
+  ultimaMossa = null;
+  if (board) {
+    board.setShapes([]);  // via le frecce verdi della soluzione
+    board.set({ lastMove: undefined, selected: undefined, movable: { color: undefined } });
+  }
+  if (elBadgeOrigine) elBadgeOrigine.hidden = true;
+}
+
 // Scarica lo stato dei flussi e (ri)disegna il selettore.
 async function caricaFlussi() {
   try {
@@ -375,8 +421,9 @@ function renderFlussi(r) {
     tot.textContent = `Totale (tutti i flussi): ${c.tentati_totali} puzzle`;
     elFlussi.appendChild(tot);
   }
-  // I pulsanti dei temi servono solo nel flusso "temi".
-  elTemi.hidden = r.flusso_attivo !== 'temi';
+  // Schermata coerente col flusso attivo: solo il suo pannello e' visibile
+  // (i pulsanti dei temi vivono dentro #pannello-temi e seguono il pannello).
+  mostraSchermataFlusso(r.flusso_attivo);
 }
 
 // Cambia il flusso attivo, poi ricarica puzzle, statistiche ed eventuali grafici.
@@ -389,9 +436,13 @@ async function cambiaFlusso(nome) {
       return;
     }
     flussoAttivo = nome;
+    mostraSchermataFlusso(nome);  // schermata subito coerente col nuovo flusso
+    pulisciScacchiera();          // niente stato residuo dal flusso precedente
     await caricaFlussi();
     await caricaProssimoPuzzle();
     aggiornaStatisticheDaServer();
+    // Entrando nel flusso piano, riallineo l'estratto delle carenze.
+    if (nome === 'piano') aggiornaEstrattoCarenze();
     if (elProgressi && !elProgressi.hidden) aggiornaProgressi();
   } catch (err) {
     console.error('Errore cambio flusso:', err);
@@ -434,6 +485,8 @@ async function scegliTema(tema) {
   try {
     await fetch(`${BACKEND}/scegli-tema/${tema}`, { method: 'POST' });
     flussoAttivo = 'temi';  // il backend porta il flusso attivo su "temi"
+    mostraSchermataFlusso('temi');  // schermata del flusso temi
+    pulisciScacchiera();            // niente stato residuo dal flusso precedente
     // Evidenzio il tema attivo tra i pulsanti (confronto sul valore vero).
     document.querySelectorAll('.tema-btn').forEach((b) => {
       b.classList.toggle('attivo', b.dataset.tema === tema);
@@ -445,6 +498,73 @@ async function scegliTema(tema) {
   } catch (err) {
     console.error('Errore scelta tema:', err);
   }
+}
+
+// --- Estratto carenze nel pannello Piano (Tappa 2 di R4) ---
+// Il collegamento debolezza -> esercizio: poche righe che spiegano PERCHE' il
+// flusso piano propone certi esercizi. NON e' il report completo (quello resta
+// nella sezione globale "Le mie carenze"): solo le 1-2 debolezze principali.
+
+// Scarica il profilo (stesso endpoint GET /profilo del report) e disegna l'estratto.
+async function aggiornaEstrattoCarenze() {
+  if (!elPianoEstratto) return;
+  try {
+    const r = await fetch(`${BACKEND}/profilo`);
+    if (!r.ok) {
+      // Profilo non ancora disponibile: messaggio neutro, il pannello resta usabile.
+      elPianoEstratto.innerHTML =
+        `<p class="estratto-vuoto">Analizza le tue partite per vedere qui le
+          debolezze su cui lavora il Piano.</p>`;
+      return;
+    }
+    renderEstrattoCarenze(await r.json());
+  } catch (err) {
+    console.error('Errore caricamento estratto carenze:', err);
+    elPianoEstratto.innerHTML = '';
+  }
+}
+
+// Disegna l'estratto compatto: le 1-2 debolezze tattiche principali (temi
+// rilevanti ordinati per tasso) + link che apre il report completo.
+function renderEstrattoCarenze(p) {
+  const rilevanti = p.temi_rilevanti || [];
+  const tassi = p.tasso_su_mosse_per_tipo || {};
+  const percErrori = p.percentuali_tattico || {};
+  const principali = [...rilevanti]
+    .sort((a, b) => (tassi[b] || 0) - (tassi[a] || 0))
+    .slice(0, 2);
+
+  if (principali.length === 0) {
+    elPianoEstratto.innerHTML =
+      `<p class="estratto-vuoto">Nessuna debolezza tattica rilevante al momento:
+        il Piano propone esercizi generali.</p>`;
+    return;
+  }
+
+  const voci = principali.map((t) => {
+    // Preferisco la quota sugli errori ("45% degli errori"): e' il dato che
+    // giustifica meglio la scelta degli esercizi; ripiego sul tasso-mosse.
+    const perc = percErrori[t];
+    const dato = (perc != null) ? `${perc}% degli errori` : `${tassi[t] || 0}% delle mosse`;
+    return `<li class="estratto-voce">
+        <span class="estratto-tema">${etichettaCarenza(t)}</span>
+        <span class="estratto-dato">${dato}</span>
+      </li>`;
+  }).join('');
+
+  elPianoEstratto.innerHTML =
+    `<div class="piano-estratto">
+       <p class="estratto-intro">Il Piano allena le tue debolezze principali:</p>
+       <ul class="estratto-lista">${voci}</ul>
+       <button class="estratto-link">Vedi tutte le carenze →</button>
+     </div>`;
+
+  // Il link apre la sezione globale "Le mie carenze" (stessa logica del toggle).
+  elPianoEstratto.querySelector('.estratto-link').addEventListener('click', () => {
+    elCarenze.hidden = false;
+    aggiornaCarenze();
+    elCarenze.scrollIntoView({ behavior: 'smooth' });
+  });
 }
 
 // --- Sezione "I miei progressi" (grafici Chart.js) ---
@@ -526,14 +646,28 @@ function disegnaGraficoPrimoColpo(snapshot) {
     type: 'line',
     data: {
       labels: etichette,
-      datasets: [{
-        label: '% risolti al primo colpo',
-        data: valori,
-        borderColor: '#3a6ea5',
-        backgroundColor: 'rgba(58,110,165,0.2)',
-        tension: 0.2,
-        fill: true,
-      }],
+      datasets: [
+        {
+          label: 'performance reale (% al primo colpo)',
+          data: valori,
+          borderColor: '#3a6ea5',
+          backgroundColor: 'rgba(58,110,165,0.2)',
+          tension: 0.2,
+          fill: true,
+        },
+        {
+          // Linea di riferimento orizzontale: il "bersaglio" verso cui la
+          // difficolta' adattiva spinge sempre la percentuale (~85%).
+          label: 'bersaglio adattivo (85%)',
+          data: valori.map(() => 85),
+          borderColor: '#999',
+          borderDash: [5, 5],
+          borderWidth: 1,
+          pointRadius: 0,
+          tension: 0,
+          fill: false,
+        },
+      ],
     },
     options: {
       responsive: true,
@@ -543,6 +677,20 @@ function disegnaGraficoPrimoColpo(snapshot) {
       },
       plugins: {
         title: { display: true, text: '% di successo al primo colpo nel tempo' },
+        // Sottotitolo onesto: una linea piatta qui e' NORMALE e non indica
+        // mancanza di progresso (la difficolta' si adatta). Per la crescita
+        // reale si guarda la "Fascia Elo nel tempo".
+        subtitle: {
+          display: true,
+          color: '#666',
+          font: { size: 11 },
+          padding: { bottom: 8 },
+          text: [
+            "Tende all'85% perche' la difficolta' si adatta. Una linea piatta e' NORMALE, non significa che non",
+            "migliori — per il miglioramento guarda la 'Fascia Elo nel tempo'.",
+          ],
+        },
+        legend: { display: true },
       },
     },
   });
@@ -583,7 +731,29 @@ function disegnaGraficoElo(dati) {
     },
     options: {
       responsive: true,
-      plugins: { title: { display: true, text: 'Fascia Elo nel tempo' } },
+      scales: {
+        // NIENTE beginAtZero: un asse Elo da 0 schiaccia le variazioni che
+        // contano. Lascio autoscalare Chart.js con un po' di respiro (grace).
+        y: {
+          grace: '10%',
+          title: { display: true, text: 'Elo (punto medio fascia)' },
+        },
+        x: { title: { display: true, text: 'tappa' } },
+      },
+      plugins: {
+        title: { display: true, text: 'Fascia Elo nel tempo' },
+        // Sottotitolo onesto: QUESTO e' il vero indicatore di crescita.
+        subtitle: {
+          display: true,
+          color: '#666',
+          font: { size: 11 },
+          padding: { bottom: 8 },
+          text: [
+            'Questo e\' il vero indicatore di crescita: se la fascia sale, stai migliorando davvero',
+            '(i puzzle si fanno piu\' difficili a parita\' di % di successo).',
+          ],
+        },
+      },
     },
   });
 }
@@ -607,7 +777,10 @@ function disegnaGraficoTemi(temi) {
     },
     options: {
       responsive: true,
-      scales: { y: { beginAtZero: true, max: 100 } },
+      scales: {
+        y: { beginAtZero: true, max: 100, title: { display: true, text: '%' } },
+        x: { title: { display: true, text: 'tema' } },
+      },
       plugins: { title: { display: true, text: 'Successo per tema (%)' } },
     },
   });
@@ -1084,10 +1257,17 @@ function disegnaGraficoEvoluzione(canvasId, salva, vecchio, etichette, punti, ch
   salva(g);
 }
 
-// Mostra/nasconde la sezione progressi; quando la apro, aggiorno i grafici.
-elToggleProg.addEventListener('click', () => {
-  elProgressi.hidden = !elProgressi.hidden;
-  if (!elProgressi.hidden) aggiornaProgressi();
+// Mostra/nasconde la sezione progressi (unica, condivisa): un toggle per
+// pannello-flusso, tutti agiscono sulla stessa sezione. Quando la apro, la
+// aggancio al pannello attivo e aggiorno i grafici (gia' riferiti al flusso attivo).
+document.querySelectorAll('.toggle-progressi').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    elProgressi.hidden = !elProgressi.hidden;
+    if (!elProgressi.hidden) {
+      agganciaProgressiAlPannello(flussoAttivo);
+      aggiornaProgressi();
+    }
+  });
 });
 
 // Mostra/nasconde la sezione carenze; quando la apro, scarico il profilo.
@@ -1099,8 +1279,10 @@ elToggleCarenze.addEventListener('click', () => {
 // Pulsante "prossimo puzzle".
 elProssimo.addEventListener('click', caricaProssimoPuzzle);
 
-// Avvio: carico i temi, lo stato dei flussi, le statistiche e il primo puzzle.
+// Avvio: carico i temi, lo stato dei flussi, le statistiche, l'estratto delle
+// carenze (pannello piano) e il primo puzzle.
 caricaTemi();
 caricaFlussi();
 aggiornaStatisticheDaServer();
+aggiornaEstrattoCarenze();
 caricaProssimoPuzzle();
