@@ -31,6 +31,7 @@ from server import (
     _carica_puzzle_errori, _riempi_coda_errori,
     profilo_carenze, _arricchisci_profilo, storico_profili,
     diagnosi_conversione_endpoint,
+    _interlaccia_blocchi,
 )
 
 
@@ -344,50 +345,90 @@ def _crea_db_puzzle(percorso, puzzle):
 
 
 def test_pesca_allargando_si_ferma_quando_basta(ambiente):
-    """Appena trova >= PUZZLE_MINIMI puzzle nuovi smette di allargare."""
+    """Fase 1: appena trova >= PUZZLE_MINIMI puzzle nuovi smette di allargare, senza
+    nemmeno toccare il pavimento (privilegia i puzzle che fanno crescere)."""
     f = _flussi()["temi"]
     f["elo_min"], f["elo_max"] = 1050, 1250
     chiamate = []
 
-    def pesca(emax):
-        chiamate.append(emax)
+    def pesca(emin, emax):
+        chiamate.append((emin, emax))
         return list(range(server.PUZZLE_MINIMI)) if emax >= 1350 else list(range(2))
 
     righe, esaurito = server._pesca_allargando(f, pesca)
     assert esaurito is False
     assert len(righe) == server.PUZZLE_MINIMI
-    assert chiamate == [1250, 1350]
+    # solo fase 1 (tetto su), pavimento mai abbassato
+    assert chiamate == [(1050, 1250), (1050, 1350)]
     assert (f["elo_min"], f["elo_max"]) == (1050, 1250)  # base intatta
 
 
-def test_pesca_allargando_rispetta_max_400(ambiente):
-    """Senza puzzle, allarga di 100 alla volta fino a +400 e poi si arrende."""
+def test_pesca_allargando_simmetrico_su_e_giu(ambiente):
+    """Senza puzzle: prima alza il tetto fino a +400 (fase 1), poi abbassa il
+    pavimento fino a -400 (fase 2), quindi si arrende. Base intatta."""
     f = _flussi()["temi"]
     f["elo_min"], f["elo_max"] = 1050, 1250
-    tetti = []
+    chiamate = []
 
-    def pesca(emax):
-        tetti.append(emax)
+    def pesca(emin, emax):
+        chiamate.append((emin, emax))
         return []
 
     righe, esaurito = server._pesca_allargando(f, pesca)
     assert esaurito is True
-    assert tetti == [1250, 1350, 1450, 1550, 1650]
-    assert (f["elo_min"], f["elo_max"]) == (1050, 1250)
+    # Fase 1: tetto su a passi di 100 fino a +400, pavimento fisso.
+    assert chiamate[:5] == [(1050, 1250), (1050, 1350), (1050, 1450),
+                            (1050, 1550), (1050, 1650)]
+    # Fase 2: pavimento giu' a passi di 100 fino a -400, tetto al massimo (1650).
+    assert chiamate[5:] == [(950, 1650), (850, 1650), (750, 1650), (650, 1650)]
+    assert (f["elo_min"], f["elo_max"]) == (1050, 1250)  # base intatta
+
+
+def test_pesca_allargando_fase2_solo_se_fase1_non_basta(ambiente):
+    """Se la fase 1 trova abbastanza puzzle, la fase 2 non parte: il pavimento non
+    viene mai abbassato."""
+    f = _flussi()["temi"]
+    f["elo_min"], f["elo_max"] = 1050, 1250
+    chiamate = []
+
+    def pesca(emin, emax):
+        chiamate.append((emin, emax))
+        # basta solo al tetto massimo della fase 1
+        return list(range(server.PUZZLE_MINIMI)) if emax >= 1650 else list(range(2))
+
+    righe, esaurito = server._pesca_allargando(f, pesca)
+    assert esaurito is False
+    assert all(emin == 1050 for emin, emax in chiamate)  # pavimento mai toccato
 
 
 def test_pesca_allargando_cappa_a_elo_assoluto(ambiente):
-    """L'allargamento non supera mai ELO_MAX_ASSOLUTO (2800)."""
+    """La fase 1 (verso l'alto) non supera mai ELO_MAX_ASSOLUTO (2800)."""
     f = _flussi()["temi"]
     f["elo_min"], f["elo_max"] = 2500, 2700
-    tetti = []
+    chiamate = []
 
-    def pesca(emax):
-        tetti.append(emax)
+    def pesca(emin, emax):
+        chiamate.append((emin, emax))
         return []
 
     server._pesca_allargando(f, pesca)
-    assert tetti == [2700, server.ELO_MAX_ASSOLUTO]
+    assert all(emax <= server.ELO_MAX_ASSOLUTO for emin, emax in chiamate)
+    assert any(emax == server.ELO_MAX_ASSOLUTO for emin, emax in chiamate)
+
+
+def test_pesca_allargando_cappa_a_elo_min_assoluto(ambiente):
+    """La fase 2 (verso il basso) non scende mai sotto ELO_MIN_ASSOLUTO (600)."""
+    f = _flussi()["temi"]
+    f["elo_min"], f["elo_max"] = 700, 900
+    chiamate = []
+
+    def pesca(emin, emax):
+        chiamate.append((emin, emax))
+        return []
+
+    server._pesca_allargando(f, pesca)
+    assert all(emin >= server.ELO_MIN_ASSOLUTO for emin, emax in chiamate)
+    assert any(emin == server.ELO_MIN_ASSOLUTO for emin, emax in chiamate)
 
 
 def test_tema_allarga_tetto_temporaneo_senza_toccare_base(ambiente, monkeypatch, tmp_path):
@@ -409,6 +450,27 @@ def test_tema_allarga_tetto_temporaneo_senza_toccare_base(ambiente, monkeypatch,
     assert f["elo_max"] == server.ELO_MAX
     ids = {p["id"] for p in f["coda"]}
     assert any(i.startswith("alto") for i in ids)
+
+
+def test_tema_fase2_pesca_verso_il_basso(ambiente, monkeypatch, tmp_path):
+    """Quando sopra la fascia non ci sono puzzle nuovi (fase 1 a vuoto), la fase 2
+    scende sotto il pavimento di base e li trova, senza toccare la fascia di base."""
+    db = str(tmp_path / "puzzle.db")
+    # Nessun puzzle nella fascia base (1050-1250) ne' sopra: solo sotto, a 900.
+    puzzle = [(f"basso{i}", 900, "middlegame fork") for i in range(8)]
+    _crea_db_puzzle(db, puzzle)
+    monkeypatch.setattr(server, "PERCORSO_DB", db)
+
+    f = _flussi()["temi"]
+    f["tema_libero"] = "forchetta"
+    esaurito = server._riempi_coda_tema(f, "fork")
+
+    assert esaurito is False
+    assert f["esaurito"] is False
+    assert f["elo_min"] == server.ELO_MIN  # base intatta
+    assert f["elo_max"] == server.ELO_MAX
+    ids = {p["id"] for p in f["coda"]}
+    assert any(i.startswith("basso") for i in ids)
 
 
 def test_tema_esaurito_segnala(ambiente, monkeypatch, tmp_path):
@@ -1352,3 +1414,117 @@ def test_diagnosi_conversione_endpoint(ambiente, monkeypatch):
     # I campi informativi sul bullet passano attraverso l'endpoint.
     assert r["partite_bullet_escluse"] == 1563
     assert r["escludi_bullet"] is True
+
+
+# --- Interlacciamento dei blocchi del piano (alternanza dei temi) ---------
+
+def _blocco_finto(motivo, fase, n, prefisso):
+    """Costruisce un blocco di `n` puzzle arricchiti, con id unici dal prefisso."""
+    return [
+        {
+            "id": f"{prefisso}{i}",
+            "fen": "fen", "moves": "e2e4", "rating": 1500, "themes": [],
+            "motivo_allenamento": motivo,
+            "fase_allenamento": fase,
+            "origine": "lichess",
+        }
+        for i in range(n)
+    ]
+
+
+def _temi_consecutivi(coda, dimensione_mini):
+    """Sequenza dei temi (motivo) dei mini-blocchi nell'ordine in cui appaiono in coda."""
+    temi = []
+    i = 0
+    while i < len(coda):
+        temi.append(coda[i]["motivo_allenamento"])
+        # Avanzo fino a fine del mini-blocco corrente (stesso tema, max dimensione_mini puzzle).
+        j = i + 1
+        while (j < len(coda) and j - i < dimensione_mini
+               and coda[j]["motivo_allenamento"] == coda[i]["motivo_allenamento"]):
+            j += 1
+        i = j
+    return temi
+
+
+def test_interlaccia_alterna_temi_bilanciati():
+    """Con >=2 temi della stessa quantita', i mini-blocchi alternano sempre il tema."""
+    blocchi = [
+        _blocco_finto("pezzo_in_presa", "mediogioco", 10, "a"),
+        _blocco_finto("forchetta", "apertura", 10, "b"),
+        _blocco_finto("inchiodatura", "finale", 10, "c"),
+    ]
+    coda = _interlaccia_blocchi(blocchi, dimensione_mini=5)
+    temi = _temi_consecutivi(coda, 5)
+    # Quantita' pari: l'esaurimento e' simultaneo, quindi l'alternanza e' totale.
+    for a, b in zip(temi, temi[1:]):
+        assert a != b
+
+
+def test_interlaccia_ripete_tema_solo_quando_gli_altri_sono_finiti():
+    """
+    Caso reale (due blocchi pezzo_in_presa): un tema puo' ripetersi in due mini-blocchi
+    consecutivi SOLO quando nessun altro tema ha piu' mini-blocchi disponibili.
+    """
+    blocchi = [
+        _blocco_finto("pezzo_in_presa", "mediogioco", 10, "a"),
+        _blocco_finto("pezzo_in_presa", "apertura", 10, "b"),  # stesso tema, due blocchi
+        _blocco_finto("forchetta", "apertura", 10, "c"),
+    ]
+    coda = _interlaccia_blocchi(blocchi, dimensione_mini=5)
+    temi = _temi_consecutivi(coda, 5)
+    # Per ogni coppia consecutiva con lo stesso tema, gli altri temi devono essere gia'
+    # esauriti (cioe' non ricompaiono piu' nel resto della sequenza).
+    for i in range(len(temi) - 1):
+        if temi[i] == temi[i + 1]:
+            altri_dopo = {t for t in temi[i + 2:] if t != temi[i]}
+            assert not altri_dopo
+
+
+def test_interlaccia_conserva_lo_stesso_insieme_di_puzzle():
+    """Stesso multiset di id prima/dopo: nessun puzzle perso o duplicato."""
+    blocchi = [
+        _blocco_finto("pezzo_in_presa", "mediogioco", 10, "a"),
+        _blocco_finto("forchetta", "apertura", 7, "b"),
+        _blocco_finto("inchiodatura", "finale", 13, "c"),
+    ]
+    originali = sorted(p["id"] for blocco in blocchi for p in blocco)
+    coda = _interlaccia_blocchi(blocchi, dimensione_mini=5)
+    assert sorted(p["id"] for p in coda) == originali
+    assert len(coda) == len(originali)
+
+
+def test_interlaccia_mini_blocchi_della_dimensione_giusta():
+    """I mini-blocchi hanno la dimensione richiesta; l'ultimo di un blocco puo' essere piu' corto."""
+    # 12 puzzle con dimensione 5 -> mini-blocchi da 5, 5, 2.
+    blocchi = [_blocco_finto("pezzo_in_presa", "mediogioco", 12, "a")]
+    coda = _interlaccia_blocchi(blocchi, dimensione_mini=5)
+    # Un solo tema: l'ordine resta invariato e i mini-blocchi sono [5, 5, 2].
+    assert [p["id"] for p in coda] == [f"a{i}" for i in range(12)]
+
+
+def test_interlaccia_ordine_interno_invariato():
+    """Dentro ogni mini-blocco l'ordine originale dei puzzle non cambia."""
+    blocchi = [
+        _blocco_finto("pezzo_in_presa", "mediogioco", 10, "a"),
+        _blocco_finto("forchetta", "apertura", 10, "b"),
+    ]
+    coda = _interlaccia_blocchi(blocchi, dimensione_mini=5)
+    # Gli id di ciascun tema compaiono nello stesso ordine relativo dell'ingresso.
+    ordine_a = [p["id"] for p in coda if p["motivo_allenamento"] == "pezzo_in_presa"]
+    ordine_b = [p["id"] for p in coda if p["motivo_allenamento"] == "forchetta"]
+    assert ordine_a == [f"a{i}" for i in range(10)]
+    assert ordine_b == [f"b{i}" for i in range(10)]
+
+
+def test_interlaccia_un_solo_tema_ordine_invariato():
+    """Caso limite: un solo tema/blocco -> nessun crash, ordine invariato (non puo' alternare)."""
+    blocchi = [_blocco_finto("pezzo_in_presa", "mediogioco", 8, "a")]
+    coda = _interlaccia_blocchi(blocchi, dimensione_mini=5)
+    assert [p["id"] for p in coda] == [f"a{i}" for i in range(8)]
+
+
+def test_interlaccia_coda_vuota():
+    """Caso limite: nessun blocco/puzzle -> coda vuota, nessun crash."""
+    assert _interlaccia_blocchi([], dimensione_mini=5) == []
+    assert _interlaccia_blocchi([[]], dimensione_mini=5) == []

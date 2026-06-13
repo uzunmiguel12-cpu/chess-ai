@@ -94,6 +94,7 @@ SOGLIA_ALZA = 90.0       # sopra questa % (sul blocco) -> alza la fascia
 SOGLIA_ABBASSA = 70.0    # sotto questa % -> abbassa la fascia
 PASSO_ELO = 100          # di quanti punti spostare la fascia
 PUZZLE_PER_BLOCCO = 30   # quanti puzzle pescare per blocco (varieta')
+DIMENSIONE_MINI_BLOCCO = 5  # puzzle per mini-blocco nell'interlacciamento della coda del PIANO
 
 # --- Parametri degli snapshot di progresso ---
 # Ogni SNAPSHOT_OGNI puzzle tentati salviamo una fotografia (percentuale al primo
@@ -364,6 +365,47 @@ def _carica_stato():
     return True
 
 
+def _interlaccia_blocchi(blocchi, dimensione_mini=DIMENSIONE_MINI_BLOCCO):
+    """
+    Riordina la coda del PIANO alternando i TEMI, senza cambiare QUALI puzzle ci sono.
+
+    `blocchi` e' una lista di blocchi; ogni blocco e' una lista di puzzle GIA' arricchiti
+    (con "motivo_allenamento", "fase_allenamento", ecc.). Restituisce una lista PIATTA con
+    gli stessi identici puzzle, ma riordinati cosi':
+
+    1. ogni blocco viene spezzato in mini-blocchi da `dimensione_mini` puzzle (l'ultimo puo'
+       essere piu' corto). L'ordine DENTRO ogni mini-blocco resta invariato: ogni mini-blocco
+       conserva il proprio tema (motivo) e fase, e l'arricchimento per-puzzle gia' presente;
+    2. i mini-blocchi vengono serviti a round-robin tra i TEMI distinti (motivo), cosi' due
+       mini-blocchi consecutivi non hanno lo stesso tema finche' restano temi con mini-blocchi
+       disponibili (quando ne resta uno solo, l'alternanza non e' piu' possibile);
+    3. si concatenano i mini-blocchi cosi' ordinati nella coda finale.
+
+    Nessun puzzle viene perso o duplicato: stesso multiset di id in ingresso e in uscita.
+    """
+    # 1. Spezza ogni blocco in mini-blocchi, raggruppati per tema (motivo). Un dict normale
+    #    (ordinato per inserimento, Python 3.7+) preserva l'ordine di apparizione dei temi.
+    mini_per_tema = {}  # motivo -> lista di mini-blocchi (ognuno e' una lista di puzzle)
+    for blocco in blocchi:
+        for inizio in range(0, len(blocco), dimensione_mini):
+            mini = blocco[inizio:inizio + dimensione_mini]
+            if not mini:
+                continue
+            motivo = mini[0].get("motivo_allenamento")
+            mini_per_tema.setdefault(motivo, []).append(mini)
+
+    # 2. Round-robin tra i temi: a ogni giro servo un mini-blocco da ciascun tema che ne ha
+    #    ancora. Cosi' due mini-blocchi consecutivi hanno temi diversi finche' esistono altri
+    #    temi con mini-blocchi rimasti; alla fine, se resta un solo tema, scorre da solo.
+    coda = []
+    code_temi = list(mini_per_tema.values())
+    while any(code_temi):
+        for mini_blocchi in code_temi:
+            if mini_blocchi:
+                coda.extend(mini_blocchi.pop(0))
+    return coda
+
+
 def _prepara_sessione():
     """
     Carica lo stato (o parte dai default) e costruisce il piano del flusso "piano".
@@ -385,11 +427,13 @@ def _prepara_sessione():
                              puzzle_per_blocco=PUZZLE_PER_BLOCCO)
     if piano is None:
         return False
-    coda = []
+    # Arricchisco ogni puzzle col contesto del suo blocco, tenendo i blocchi SEPARATI:
+    # l'interlacciamento qui sotto li alterna per tema invece di concatenarli.
+    blocchi_coda = []
     for blocco in piano["blocchi"]:
+        puzzle_blocco = []
         for p in blocco["puzzle"]:
-            # arricchiamo ogni puzzle con il contesto del blocco (perche' lo fai)
-            coda.append({
+            puzzle_blocco.append({
                 "id": p["id"],
                 "fen": p["fen"],
                 "moves": p["moves"],
@@ -400,6 +444,9 @@ def _prepara_sessione():
                 "origine": "lichess",  # uniformita': il campo c'e' sempre
             })
             _sessione["visti"].add(p["id"])
+        blocchi_coda.append(puzzle_blocco)
+    # Interlaccia i blocchi (alterna i temi) invece di concatenarli: stessi puzzle, altro ordine.
+    coda = _interlaccia_blocchi(blocchi_coda)
     fp["piano"] = piano
     fp["coda"] = coda
     fp["serviti"] = 0
@@ -425,44 +472,71 @@ def _prepara_sessione():
 
 def _pesca_allargando(f, pesca):
     """
-    Cerca puzzle NUOVI tenendo fisso il pavimento (l'elo_min del flusso) e alzando
-    SOLO TEMPORANEAMENTE il tetto superiore quando i puzzle nuovi scarseggiano.
+    Cerca puzzle NUOVI allargando TEMPORANEAMENTE la finestra di pesca quando i
+    puzzle nuovi scarseggiano, in modo SIMMETRICO (prima su, poi anche giu'):
 
-    `pesca(elo_max_eff)` deve restituire la lista di puzzle nuovi trovati nella
-    fascia [elo_min del flusso, elo_max_eff].
+    FASE 1 (verso l'alto): tiene fisso il pavimento (l'elo_min del flusso) e alza il
+    tetto a passi di ALLARGAMENTO_PASSO fino a base_max + ALLARGAMENTO_MAX. Se in
+    questa fase raggiunge PUZZLE_MINIMI puzzle nuovi si ferma: privilegiamo i puzzle
+    che fanno crescere.
 
-    La fascia di base del flusso NON viene MAI toccata: e' solo un allargamento
-    "effettivo" e temporaneo per la singola pesca, cosi' l'adattivita' resta
-    l'unica padrona della fascia di base di quel flusso.
+    FASE 2 (anche verso il basso): se dopo la fase 1 i puzzle nuovi sono ancora
+    < PUZZLE_MINIMI, abbassa anche il pavimento a passi di ALLARGAMENTO_PASSO fino a
+    base_min - ALLARGAMENTO_MAX, tenendo il tetto al massimo gia' raggiunto.
 
-    RESTITUISCE (righe, esaurito): esaurito=True se nemmeno col tetto massimo si
-    raggiungono PUZZLE_MINIMI puzzle nuovi.
+    `pesca(elo_min_eff, elo_max_eff)` deve restituire la lista di puzzle nuovi
+    trovati nella fascia [elo_min_eff, elo_max_eff].
+
+    La fascia di BASE del flusso (f["elo_min"]/f["elo_max"]) NON viene MAI toccata:
+    e' solo un allargamento "effettivo" e temporaneo per la singola pesca, cosi'
+    l'adattivita' resta l'unica padrona della fascia di base di quel flusso. Si
+    rispettano sempre i limiti assoluti ELO_MIN_ASSOLUTO / ELO_MAX_ASSOLUTO.
+
+    RESTITUISCE (righe, esaurito): esaurito=True solo se NEMMENO con l'allargamento
+    simmetrico completo (su E giu') si raggiungono PUZZLE_MINIMI puzzle nuovi.
     """
+    base_min = f["elo_min"]
     base_max = f["elo_max"]
-    tetto_limite = min(base_max + ALLARGAMENTO_MAX, ELO_MAX_ASSOLUTO)
+    elo_min_eff = base_min
     elo_max_eff = base_max
-    righe = pesca(elo_max_eff)
+
+    # FASE 1: alza solo il tetto, pavimento fisso (privilegia i puzzle che fanno crescere).
+    tetto_limite = min(base_max + ALLARGAMENTO_MAX, ELO_MAX_ASSOLUTO)
+    righe = pesca(elo_min_eff, elo_max_eff)
     while len(righe) < PUZZLE_MINIMI and elo_max_eff < tetto_limite:
         elo_max_eff = min(elo_max_eff + ALLARGAMENTO_PASSO, tetto_limite)
-        righe = pesca(elo_max_eff)
+        righe = pesca(elo_min_eff, elo_max_eff)
         logger.info("Pochi puzzle nuovi: tetto allargato temporaneamente a %d "
                     "(base %d), trovati %d", elo_max_eff, base_max, len(righe))
+
+    # FASE 2: solo se la fase 1 non basta, abbassa anche il pavimento, tenendo il
+    # tetto al massimo gia' raggiunto. Per i temi e' raro (i bacini sono enormi),
+    # serve quando verso l'alto la finestra e' esaurita; per gli errori (bacino
+    # finito) e' un completamento naturale.
+    pavimento_limite = max(base_min - ALLARGAMENTO_MAX, ELO_MIN_ASSOLUTO)
+    while len(righe) < PUZZLE_MINIMI and elo_min_eff > pavimento_limite:
+        elo_min_eff = max(elo_min_eff - ALLARGAMENTO_PASSO, pavimento_limite)
+        righe = pesca(elo_min_eff, elo_max_eff)
+        logger.info("Pochi puzzle nuovi anche verso l'alto: pavimento abbassato "
+                    "temporaneamente a %d (base %d), trovati %d",
+                    elo_min_eff, base_min, len(righe))
+
     esaurito = len(righe) < PUZZLE_MINIMI
     return righe, esaurito
 
 
-def _pesca_tema_righe(f, tema_lichess, elo_max):
+def _pesca_tema_righe(f, tema_lichess, elo_min, elo_max):
     """
     Query diretta sul database: puzzle NUOVI di un tema nella fascia
-    [elo_min del flusso, elo_max], escludendo i visti GLOBALI.
-    `elo_max` puo' essere il tetto di base o uno allargato temporaneamente.
+    [elo_min, elo_max], escludendo i visti GLOBALI. `elo_min`/`elo_max` possono
+    essere quelli di base o allargati temporaneamente da _pesca_allargando.
     """
     import sqlite3
     conn = sqlite3.connect(PERCORSO_DB)
     cur = conn.cursor()
     visti = list(_sessione["visti"])  # GLOBALE tra i flussi
     condizioni = ["themes LIKE ?", "rating BETWEEN ? AND ?"]
-    parametri = [f"%{tema_lichess}%", f["elo_min"], elo_max]
+    parametri = [f"%{tema_lichess}%", elo_min, elo_max]
     if visti:
         segnaposto = ",".join("?" for _ in visti)
         condizioni.append(f"id NOT IN ({segnaposto})")
@@ -487,7 +561,7 @@ def _riempi_coda_tema(f, tema_lichess):
     RESTITUISCE True se il tema e' esaurito (puzzle nuovi insufficienti).
     """
     righe, esaurito = _pesca_allargando(
-        f, lambda emax: _pesca_tema_righe(f, tema_lichess, emax))
+        f, lambda emin, emax: _pesca_tema_righe(f, tema_lichess, emin, emax))
     nuova_coda = f["coda"][:f["serviti"]]  # tieni i gia' serviti
     for r in righe:
         nuova_coda.append({
@@ -508,16 +582,16 @@ def _riempi_coda_tema(f, tema_lichess):
     return esaurito
 
 
-def _pesca_errori_righe(f, elo_max):
+def _pesca_errori_righe(f, elo_min, elo_max):
     """
     Pesca dai MIEI errori (_PUZZLE_ERRORI, in memoria) i puzzle NUOVI nella fascia
-    [elo_min del flusso, elo_max], escludendo i visti GLOBALI. Mescola per varieta'
-    (random a seed non fisso: e' runtime, va benissimo). `elo_max` puo' essere il
-    tetto di base o uno allargato temporaneamente da _pesca_allargando.
+    [elo_min, elo_max], escludendo i visti GLOBALI. Mescola per varieta' (random a
+    seed non fisso: e' runtime, va benissimo). `elo_min`/`elo_max` possono essere
+    quelli di base o allargati temporaneamente da _pesca_allargando.
     """
     visti = _sessione["visti"]  # GLOBALE tra i flussi
     candidati = [p for p in _PUZZLE_ERRORI
-                 if f["elo_min"] <= p["rating"] <= elo_max and p["id"] not in visti]
+                 if elo_min <= p["rating"] <= elo_max and p["id"] not in visti]
     random.shuffle(candidati)
     return candidati[:PUZZLE_PER_BLOCCO]
 
@@ -538,7 +612,7 @@ def _riempi_coda_errori(f):
     """
     # 1. I miei errori, con allargamento temporaneo del tetto se scarseggiano.
     errori, _ = _pesca_allargando(
-        f, lambda emax: _pesca_errori_righe(f, emax))
+        f, lambda emin, emax: _pesca_errori_righe(f, emin, emax))
     nuova_coda = f["coda"][:f["serviti"]]  # tieni i gia' serviti
     for p in errori:
         nuova_coda.append({
@@ -601,15 +675,18 @@ def _ricostruisci_coda_con_fascia(f):
     from raccomanda import raccomanda
     nuova_coda = f["coda"][:f["serviti"]]  # tieni i gia' serviti
     nuovi = 0
+    # Tengo i blocchi SEPARATI per poterli interlacciare (alternanza temi) come nel piano iniziale.
+    blocchi_coda = []
     for blocco in piano["blocchi"]:
         # b=blocco fissa il blocco nella lambda (evita la late-binding nel ciclo).
         puzzle, _ = _pesca_allargando(
-            f, lambda emax, b=blocco: raccomanda(
+            f, lambda emin, emax, b=blocco: raccomanda(
                 PERCORSO_DB, fase=b["fase"], motivo=b["motivo"],
-                elo_min=f["elo_min"], elo_max=emax,
+                elo_min=emin, elo_max=emax,
                 quanti=PUZZLE_PER_BLOCCO, escludi_id=list(_sessione["visti"])))
+        puzzle_blocco = []
         for p in puzzle:
-            nuova_coda.append({
+            puzzle_blocco.append({
                 "id": p["id"], "fen": p["fen"], "moves": p["moves"],
                 "rating": p["rating"], "themes": p["themes"],
                 "motivo_allenamento": blocco["motivo"],
@@ -618,6 +695,9 @@ def _ricostruisci_coda_con_fascia(f):
             })
             _sessione["visti"].add(p["id"])
             nuovi += 1
+        blocchi_coda.append(puzzle_blocco)
+    # Interlaccia solo i puzzle NUOVI (alterna i temi); i gia' serviti restano davanti.
+    nuova_coda.extend(_interlaccia_blocchi(blocchi_coda))
     f["coda"] = nuova_coda
     # Esaurito se, in tutto il piano, i puzzle nuovi aggiunti sono insufficienti.
     f["esaurito"] = nuovi < PUZZLE_MINIMI
@@ -1574,8 +1654,9 @@ def scegli_tema(tema: str):
                 "esaurito": esaurito}
     if esaurito:
         risposta["suggerimento"] = (
-            "Pochi puzzle nuovi per questo tema, anche allargando la fascia: "
-            "prova a cambiare tema per continuare a variare.")
+            "Hai esaurito i puzzle di questo tema vicini al tuo livello (ne "
+            "esistono di piu' difficili). Continua ad allenarti per salire di "
+            "fascia, oppure scegli un altro tema.")
     return risposta
 
 
@@ -1624,8 +1705,9 @@ def prossimo_puzzle():
         if f["esaurito"]:
             risposta["esaurito"] = True
             risposta["suggerimento"] = (
-                "I puzzle nuovi di questo tema sono esauriti, anche allargando la "
-                "fascia di Elo. Prova a cambiare tema.")
+                "Hai esaurito i puzzle di questo tema vicini al tuo livello (ne "
+                "esistono di piu' difficili). Continua ad allenarti per salire di "
+                "fascia, oppure scegli un altro tema.")
         return risposta
 
     puzzle = f["coda"][idx]
@@ -1640,6 +1722,7 @@ def prossimo_puzzle():
     }
     if f["esaurito"]:
         risposta["suggerimento"] = (
-            "I puzzle nuovi di questo tema stanno per finire, anche allargando la "
-            "fascia di Elo. Valuta di cambiare tema.")
+            "Stai finendo i puzzle di questo tema vicini al tuo livello (ne "
+            "esistono di piu' difficili). Continua ad allenarti per salire di "
+            "fascia, oppure scegli un altro tema.")
     return risposta
