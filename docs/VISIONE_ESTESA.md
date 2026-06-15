@@ -226,6 +226,17 @@ da progettare quando i sei pezzi saranno completati.
 > Vale per tutte il principio guida del progetto: **onestà sopra l'apparenza** — niente
 > numeri che sembrano precisi ma sono arbitrari.
 
+> **STATO (aggiornato a fine sessione R/C/T):**
+> - **Gruppo R: COMPLETO ✅** — R1 (allargamento simmetrico pesca temi + messaggio veritiero),
+>   R2 (era già corretto), R3 (grafici non-ingannevoli, nota 85%), R4 (schermate separate per flusso).
+> - **C1: ✅** interlacciamento blocchi del Piano (no più temi ripetuti di fila). C2/C3 in parte
+>   coperti dal punto 2; resta pesare la rotazione per priorità (Livello 2).
+> - **T3: ✅** scomposizione del non_tattico (sola misurazione). **FIX CLASSIFICAZIONE ✅**: i tipi
+>   tattici ora si calcolano sulla BEST move (tattica mancata), concettualmente corretto ma effetto
+>   numerico ~nullo. **T2: avviato e FERMATO** — lo scacco di scoperta recupera solo ~6 errori;
+>   conclusione onesta: il margine è posizionale, non tattico. **T1: non fatto** (minore).
+> - Dettagli e numeri nello "Stato attuale" in fondo e in `docs/DA_FARE.md`.
+
 ### Gruppo R — Rifinitura di cose già esistenti (difficoltà: bassa)
 
 **R1. Continuità quando un tema libero si esaurisce.**
@@ -364,8 +375,26 @@ I sei pezzi del coach (ordine 1 → 6 → 2 → 3 → 4 → 5):
   picco +2÷+6); le diagnosi posizionali restano il muro, aperte.
 
 Raffinamenti futuri annotati (non urgenti): freccia rossa dell'errore (p.3), piano dinamico pieno
-(p.4), tasso-su-occasioni (p.2), diagnosi posizionali (p.5, il muro), più i miglioramenti R/C/T e T3.
+(p.4), tasso-su-occasioni (p.2), diagnosi posizionali (p.5, il muro).
 
-Possibile prossimo passo: scegliere tra i raffinamenti sopra, i miglioramenti R/C/T (rifiniture
-d'uso), o iniziare a guardare la **Fase 5** (multi-utente). Nessuno è urgente: il sistema personale
-è completo e coerente.
+**Miglioramenti R/C/T (sessione successiva):**
+- Gruppo R COMPLETO ✅ (R1 allargamento simmetrico pesca temi + messaggio veritiero; R2 era già
+  corretto; R3 grafici non-ingannevoli con nota 85%; R4 schermate separate per flusso con scacchiera
+  condivisa pulita al cambio).
+- C1 ✅ interlacciamento blocchi del Piano (mini-blocchi da 5, niente più temi ripetuti di fila).
+- T3 ✅ scomposizione del non_tattico. FIX CLASSIFICAZIONE ✅ (tipo tattico dalla best move = tattica
+  mancata; concettualmente giusto, effetto numerico ~nullo). T2 avviato e FERMATO (scacco di scoperta
+  recupera ~6 errori; il resto è posizionale). T1 non fatto.
+- **Lezione chiave della sessione:** il non_tattico (~45% degli errori gravi non-bullet) è per ~75%
+  POSIZIONALE puro. Non c'è una riserva di tattiche nascoste da allenare: il margine di crescita vero
+  è posizionale (il "muro" del punto 5). T3 ha anche insegnato a verificare le misure prima di
+  fidarsene (un suo bug iniziale aveva fatto credere a un recupero di ~1456 tattiche inesistente).
+
+Possibili prossimi passi (nessuno urgente, sistema completo e coerente):
+- Raffinamenti dei pezzi del coach (freccia rossa, piano dinamico, tasso-su-occasioni).
+- C1-Livello2 (pesare la rotazione del Piano per priorità), T1 (disclaimer).
+- Le diagnosi POSIZIONALI del punto 5 (il muro vero) — coerente con la lezione che il margine è lì.
+- Fase 5 multi-utente (grande salto: account, hosting, DB — altro progetto).
+- ATTENZIONE snapshot: il fix classificazione ha cambiato i tipi del profilo; il prossimo confronto
+  Tappa D potrebbe segnalare un "cambiamento" enorme che è solo la riclassificazione, non gioco reale.
+  Valutare un reset della baseline degli snapshot.

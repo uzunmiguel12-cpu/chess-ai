@@ -11,9 +11,16 @@ import os
 import json
 import shutil
 import tempfile
-from arricchisci import arricchisci_partita, arricchisci_tutte
+from arricchisci import arricchisci_partita, arricchisci_tutte, _aggiungi_tipo_tattico
 
 POS_INIZIALE = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+# Posizione (Bianco al tratto) in cui la MOSSA MIGLIORE Rd1 (d2d1) porta a una
+# posizione in cui il Nero ha una forchetta di cavallo (Ng4-f2 su Re1 e Td1).
+FEN_BEST_FORCHETTA = "4k3/8/8/8/6n1/8/3R4/7K w - - 0 1"
+# Posizione (Bianco al tratto) in cui la mossa migliore (spinta di pedone e2e4)
+# e' puramente posizionale: nessun pattern tattico.
+FEN_BEST_POSIZIONALE = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
 
 
 def _partita_finta():
@@ -48,6 +55,74 @@ def test_gravita_corretta_per_mossa():
     risultato = arricchisci_partita(_partita_finta())
     assert risultato["mosse"][0]["gravita"] == "excellent"
     assert risultato["mosse"][1]["gravita"] == "blunder"
+
+
+def test_tipo_tattico_dalla_best_move_forchetta():
+    """
+    Un errore la cui MOSSA MIGLIORE crea una forchetta -> tipo_tattico
+    'forchetta', anche se la mossa effettivamente giocata non era tattica.
+    """
+    mossa = {
+        "fen": FEN_BEST_FORCHETTA,
+        "move_uci": "h1g1",          # mossa giocata: spostamento di re, non tattico
+        "best_move_uci": "d2d1",     # mossa migliore: porta alla forchetta
+        "gravita": "blunder",
+    }
+    risultato = _aggiungi_tipo_tattico(mossa)
+    assert risultato["tipo_tattico"] == "forchetta"
+
+
+def test_tipo_tattico_best_move_posizionale_resta_none():
+    """Best move puramente posizionale (nessun pattern) -> tipo_tattico None."""
+    mossa = {
+        "fen": FEN_BEST_POSIZIONALE,
+        "move_uci": "e1d1",
+        "best_move_uci": "e2e4",
+        "gravita": "mistake",
+    }
+    risultato = _aggiungi_tipo_tattico(mossa)
+    assert risultato["tipo_tattico"] is None
+
+
+def test_tipo_tattico_best_move_mancante_o_illegale():
+    """best_move_uci assente o illegale -> None senza crash."""
+    mancante = _aggiungi_tipo_tattico({
+        "fen": FEN_BEST_FORCHETTA,
+        "move_uci": "h1g1",
+        "gravita": "blunder",
+    })
+    assert mancante["tipo_tattico"] is None
+
+    vuoto = _aggiungi_tipo_tattico({
+        "fen": FEN_BEST_FORCHETTA,
+        "move_uci": "h1g1",
+        "best_move_uci": "",
+        "gravita": "blunder",
+    })
+    assert vuoto["tipo_tattico"] is None
+
+    illegale = _aggiungi_tipo_tattico({
+        "fen": FEN_BEST_FORCHETTA,
+        "move_uci": "h1g1",
+        "best_move_uci": "a1a8",     # mossa illegale in questa posizione
+        "gravita": "blunder",
+    })
+    assert illegale["tipo_tattico"] is None
+
+
+def test_tipo_tattico_solo_sugli_errori():
+    """
+    Le mosse non-errore (gravita non analizzata) -> tipo_tattico None, anche se
+    la best move sarebbe tattica.
+    """
+    mossa = {
+        "fen": FEN_BEST_FORCHETTA,
+        "move_uci": "h1g1",
+        "best_move_uci": "d2d1",     # tattica, ma la mossa non e' un errore
+        "gravita": "excellent",
+    }
+    risultato = _aggiungi_tipo_tattico(mossa)
+    assert risultato["tipo_tattico"] is None
 
 
 def test_arricchisci_tutte_su_cartelle_temporanee():

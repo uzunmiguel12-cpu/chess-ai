@@ -1,10 +1,11 @@
 # chess-ai — Cose da fare e da implementare
 
-> Stato del progetto: **Fase 4 completata + tutti e sei i pezzi del coach toccati** (1,6,2,3,4
-> completi nella sostanza; 5 avviato con la prima diagnosi). Sistema personale completo e coerente.
+> Stato del progetto: **Fase 4 + tutti e sei i pezzi del coach + gruppo R completo + C1 + T3 + fix
+> classificazione + T2 avviato-e-fermato.** Sistema personale completo, coerente e onesto.
 > Questo documento elenca ciò che manca ancora, diviso per priorità.
-> Aggiornato al termine della sessione in cui sono stati fatti i punti 3 (coaching visivo), 4
-> (grafico evoluzione) e avviato il 5 (diagnosi "non converti il vantaggio").
+> Aggiornato al termine della sessione dei miglioramenti R/C/T: gruppo R completo (R1-R4), C1
+> (interlacciamento blocchi), T3 (scomposizione non_tattico), fix classificazione tattica (best move),
+> T2 fermato dopo la scoperta (ritorno ~0). Lezione: il margine di crescita è POSIZIONALE, non tattico.
 
 ---
 
@@ -204,38 +205,46 @@ Il sistema **personale** è completo e funzionante end-to-end:
 > R / C / T). Diversi si sovrappongono col **punto 2** della visione (report carenze):
 > conviene affrontarli insieme.
 
-**Rifinitura (R) — bassa difficoltà:**
-- R1. Flusso `temi`: quando un tema si esaurisce, **proseguire** (salire di difficoltà o
-  continuare con l'adattività) invece di fermarsi. Riusa `_pesca_allargando` / rinforzo come
-  nel flusso errori.
-- R2. % "tema migliore/peggiore" = **primo colpo / tentati** (coerenza con la def. di successo).
-- R3. Rendere chiari i grafici "fascia Elo nel tempo" e "% primo colpo nel tempo" (assi,
-  legenda, spiegazione dell'85%).
-- R4. **Schermate distinte per flusso**: nel Piano non si vedono i temi liberi; ogni flusso
-  mostra solo i suoi dati.
+**Rifinitura (R) — GRUPPO COMPLETO ✅:**
+- R1. ✅ Flusso `temi`: allargamento SIMMETRICO della finestra di pesca (prima su, poi giù) in
+  `_pesca_allargando`, + messaggio di esaurimento VERITIERO ("hai esaurito i puzzle vicini al tuo
+  livello, ne esistono di più difficili"). Misurato: nessun tema è povero nel DB (anche infilata ha
+  133k puzzle); il blocco era l'allargamento solo-verso-l'alto. La fascia di BASE resta intatta
+  (test anti-regressione). Niente fallback a puzzle misti (tradirebbe la scelta del tema).
+- R2. ✅ Era GIÀ CORRETTO: tema migliore/peggiore già su `risolti_primo / tentati`. Nessuna modifica.
+  (Guardrail sul campione minimo NON aggiunto — scelta dell'utente.)
+- R3. ✅ Grafici resi non-ingannevoli: sottotitolo onesto sull'85% sul grafico % primo colpo (+ linea
+  di riferimento tratteggiata a 85%, "performance reale" vs "bersaglio adattivo"); grafico Elo con
+  scala Y senza beginAtZero (grace 10%) e sottotitolo "vero indicatore di crescita".
+- R4. ✅ Schermate separate per flusso (3 tappe): cornice a 3 pannelli con scacchiera UNICA condivisa
+  + `pulisciScacchiera()` al cambio flusso (no stato residuo); progressi spostati DENTRO ogni pannello
+  via toggle (un solo set di canvas, appendChild); estratto-carenze nel Piano (riusa /profilo, mostra
+  le 2 debolezze principali + link "Vedi tutte le carenze →"). Carenze restano GLOBALI separate.
 
-**Coaching (C) — media, lega col punto 2:**
-- C1. Flusso `piano`: tema **più definito e a rotazione** (etichetta visibile + cambio ogni
-  tot in base ai risolti al primo colpo). DECISIONE APERTA: ogni quanti puzzle e con quale
-  regola d'avanzamento.
-- C2. Consigliare su quali **temi liberi** concentrarsi in base alle carenze.
-- C3. **Piano di studio personalizzato** a punti prima dell'allenamento (quali temi, quanto
-  tempo, come variare). DECISIONE APERTA: il "tempo consigliato" deve derivare da un dato
-  reale (frequenza errore / tasso fallimento), non inventato.
+**Coaching (C):**
+- C1. ✅ Flusso `piano`: INTERLACCIAMENTO dei blocchi (era il vero fastidio: i blocchi erano
+  CONCATENATI, ~20 puzzle stesso tema di fila). Helper `_interlaccia_blocchi` (mini-blocchi da
+  DIMENSIONE_MINI_BLOCCO=5, round-robin tra i temi, mai 2 mini-blocchi stesso tema di fila). Stesso
+  multiset di puzzle (test anti-perdita). NON pesato per priorità (Livello 2, rimandato).
+- C2/C3. (parzialmente coperti dal punto 2 / estratto-carenze). Restano: pesare la rotazione del Piano
+  per priorità (Livello 2 di C1).
 
 **Trasparenza e motore (T):**
-- T1. **Disclaimer alla prima partita** (cosa misura, che la difficoltà si adatta; tono
-  divulgativo). NOTA onesta: la segretezza lato client è debole — il disclaimer informa
-  l'utente, non protegge davvero l'algoritmo. Flag `disclaimer_visto`.
-- T2. **Nuovi tipi tattici** riconosciuti (estende `ml/tattica.py`): deviazione, attrazione,
-  scoperta, zwischenzug, sovraccarico… Beneficio anche sui puzzle-errore (rinforzi più
-  "simili"). Ogni tema aggiunto con test, uno per volta.
-- T3. **Capire cosa c'è nel "non tattico" (38.5%)**: scomporre la categoria-residuo per
-  capirne la composizione (LIVELLO 1, solo conteggio). Probabile divisione in: tattiche non
-  ancora riconosciute (→ T2), posizionale con soluzione netta (allenabile come i tattici,
-  LIVELLO 2), posizionale puro senza mossa netta (muro del punto 5, LIVELLO 3). I livelli 2/3
-  si decidono DOPO aver visto la composizione, non al buio. Onesto: non tutto è allenabile
-  coi puzzle.
+- T3. ✅ FATTO (sola misurazione) — `ml/analizza_non_tattico.py` + `/`. Scompone il "non_tattico"
+  classificando sulla BEST move. CORRETTO in corso d'opera per allinearsi al profilo (prima misurava
+  sulla mia mossa, ingannava). Risultato VERO sui dati: non_tattico ~45% degli errori gravi non-bullet,
+  di cui ~25% "tattica non coperta" e ~75% POSIZIONALE puro (il muro). Niente tesoro tattico nascosto.
+- FIX CLASSIFICAZIONE ✅ (scoperto grazie a T3) — `ml/arricchisci.py` ora calcola `tipo_tattico` dalla
+  BEST move (tattica MANCATA) invece che dalla mia mossa. Concettualmente corretto. EFFETTO NUMERICO
+  QUASI NULLO (i flussi nei due sensi si compensano: non_tattico resta ~45%) — NON il grande recupero
+  che sembrava. Richiede di rigenerare `data/categorie/` con `python ml/arricchisci.py`.
+- T2. 🔶 AVVIATO e FERMATO (ritorno ~0). Aggiunto lo SCACCO DI SCOPERTA a `ml/tattica.py`
+  (`scoperta_creata`, etichetta "scoperta") — il tipo più affidabile da riconoscere. Misurato: recupera
+  solo ~6 errori su 12046. Conclusione onesta: gli scacchi di scoperta sono rari nei miei errori; gli
+  altri tipi (deviazione/attrazione/sovraccarico) sono più concettuali, più inclini a falsi positivi, e
+  renderebbero anch'essi poco. T2 fermato qui. La scoperta resta (non fa danno). Il margine di crescita
+  vero è POSIZIONALE, non tattico.
+- T1. ❌ NON fatto — disclaimer alla prima partita. Minore. NOTA onesta: segretezza lato client debole.
 
 ---
 

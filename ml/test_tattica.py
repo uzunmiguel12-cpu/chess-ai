@@ -13,6 +13,7 @@ from tattica import (
     trova_pezzo_in_presa,
     trova_forchetta,
     inchiodatura_creata,
+    scoperta_creata,
     trova_infilata,
     rileva_tipo_tattico,
 )
@@ -62,6 +63,50 @@ def test_inchiodatura_preesistente_non_conta():
     dopo = prima.copy()
     dopo.push(chess.Move.from_uci("a3a4"))
     assert inchiodatura_creata(prima, dopo, chess.WHITE) is False
+
+
+# --- Scoperta (scacco di scoperta) ---
+
+# Posizioni costruite a mano: Re bianco in a1, Torre bianca in e1 sulla colonna e,
+# Re nero in e8. Il Cavallo bianco in e4 BLOCCA la linea della torre verso il re.
+FEN_SCOP_PRIMA = "4k3/8/8/8/4N3/8/8/K3R3 w - - 0 1"
+FEN_SCOP_DOPO = "4k3/8/8/2N5/8/8/8/K3R3 b - - 0 1"  # dopo Ne4-c5
+
+
+def test_scoperta_classica():
+    """Ne4-c5 toglie il blocco: la torre e1 scopre lo scacco sul re e8."""
+    prima = chess.Board(FEN_SCOP_PRIMA)
+    dopo = chess.Board(FEN_SCOP_DOPO)
+    assert scoperta_creata(prima, dopo, "e4c5", chess.WHITE) is True
+
+
+def test_scacco_diretto_non_e_scoperta():
+    """La Donna si muove e da' scacco LEI stessa: scacco diretto, non di scoperta."""
+    prima = chess.Board("4k3/8/8/8/8/8/8/K2Q4 w - - 0 1")
+    dopo = chess.Board("3Qk3/8/8/8/8/8/8/K7 b - - 0 1")  # dopo Qd1-d8+
+    assert scoperta_creata(prima, dopo, "d1d8", chess.WHITE) is False
+
+
+def test_scacco_preesistente_non_e_scoperta():
+    """La torre dava gia' scacco PRIMA: lo scacco non e' conseguenza della mossa."""
+    prima = chess.Board("4k3/8/8/8/8/8/P7/K3R3 w - - 0 1")  # torre e1 gia' inchioda il re
+    dopo = chess.Board("4k3/8/8/8/P7/8/8/K3R3 b - - 0 1")   # dopo a2-a4 (altro pezzo)
+    assert scoperta_creata(prima, dopo, "a2a4", chess.WHITE) is False
+
+
+def test_nessuno_scacco_non_e_scoperta():
+    """Mossa che non da' scacco -> mai scoperta (ci limitiamo allo scacco)."""
+    prima = chess.Board(chess.STARTING_FEN)
+    dopo = chess.Board(
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+    )
+    assert scoperta_creata(prima, dopo, "e2e4", chess.WHITE) is False
+
+
+def test_etichetta_scoperta():
+    assert rileva_tipo_tattico(
+        FEN_SCOP_PRIMA, FEN_SCOP_DOPO, chess.WHITE, "e4c5"
+    ) == "scoperta"
 
 
 # --- Infilata ---

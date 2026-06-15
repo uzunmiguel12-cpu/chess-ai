@@ -6,6 +6,8 @@ Tipi riconosciuti (in ordine di priorita'):
   guadagno (Static Exchange Evaluation > 0).
 - "forchetta": l'avversario ha una mossa che porta un suo pezzo ad attaccare
   >=2 pezzi di valore, senza perdere il pezzo.
+- "scoperta": la mossa produce uno SCACCO DI SCOPERTA, cioe' togliendo di mezzo
+  il pezzo mosso si scopre lo scacco di un proprio pezzo a lungo raggio.
 - "inchiodatura": la mossa CREA un'inchiodatura su un proprio pezzo che prima
   non era inchiodato.
 
@@ -118,6 +120,53 @@ def inchiodatura_creata(board_prima, board_dopo, colore_che_muove):
     return len(dopo - prima) > 0
 
 
+def scoperta_creata(board_prima, board_dopo, mossa_uci, colore_che_muove):
+    """
+    True se la mossa ha prodotto uno SCACCO DI SCOPERTA: dopo la mossa il re
+    avversario e' sotto scacco da un mio pezzo a lungo raggio (alfiere/torre/donna)
+    DIVERSO dal pezzo che ho mosso, la cui linea verso il re era bloccata PRIMA dal
+    pezzo che ho spostato.
+
+    Ci limitiamo di proposito allo SCACCO di scoperta (non la scoperta generica che
+    vince materiale): e' la forma netta e priva di falsi positivi.
+
+    Differenziale prima/dopo, come inchiodatura_creata: lo scacco deve essere
+    CONSEGUENZA della mossa.
+    """
+    avversario = not colore_che_muove
+
+    # 1. Dopo la mossa il re avversario DEVE essere sotto scacco (altrimenti non e'
+    #    uno scacco di scoperta, e qui ci limitiamo a quello).
+    if not board_dopo.is_check() or board_dopo.turn != avversario:
+        return False
+    casa_re = board_dopo.king(avversario)
+    if casa_re is None:
+        return False
+
+    # 2. Casa di ARRIVO del pezzo mosso.
+    casa_arrivo = chess.Move.from_uci(mossa_uci).to_square
+
+    # 3. Chi da' scacco DOPO la mossa: le case dei miei pezzi che attaccano il re.
+    attaccanti = board_dopo.attackers(colore_che_muove, casa_re)
+
+    # 4. E' scoperta se esiste un attaccante a lungo raggio DIVERSO dal pezzo mosso:
+    #    il pezzo mosso si e' tolto di mezzo e ha scoperto lo scacco di un altro pezzo.
+    #    (Se l'unico che da' scacco e' proprio quello mosso -> scacco diretto, NON
+    #    di scoperta.)
+    for casa_att in attaccanti:
+        if casa_att == casa_arrivo:
+            continue
+        pezzo = board_dopo.piece_at(casa_att)
+        if pezzo is None or pezzo.piece_type not in PEZZI_LINEA:
+            continue
+        # 5. Sicurezza extra contro i falsi positivi: PRIMA della mossa quel pezzo
+        #    NON doveva gia' dare scacco (lo scacco e' conseguenza della mossa).
+        if casa_att in board_prima.attackers(colore_che_muove, casa_re):
+            continue
+        return True
+    return False
+
+
 def _direzione(da_sq, a_sq):
     """Passo unitario (df, dr) da da_sq verso a_sq se sono in linea retta, o None."""
     df = chess.square_file(a_sq) - chess.square_file(da_sq)
@@ -184,12 +233,18 @@ def trova_infilata(board, colore_vittima):
     return False
 
 
-def rileva_tipo_tattico(fen_prima, fen_dopo, colore_che_ha_mosso):
+def rileva_tipo_tattico(fen_prima, fen_dopo, colore_che_ha_mosso, mossa_uci=None):
     """
     Dato lo stato PRIMA e DOPO una mossa e il colore di chi l'ha giocata,
     RESTITUISCE un'etichetta di tipo tattico, o None.
 
-    Priorita': pezzo in presa, poi forchetta, poi inchiodatura creata.
+    Priorita': pezzo in presa, poi forchetta, poi scoperta, poi inchiodatura
+    creata, poi infilata. pezzo_in_presa e forchetta restano prioritari perche'
+    geometricamente certi; lo scacco di scoperta e' spesso fortissimo ma lo
+    teniamo dopo per coerenza con la priorita' esistente.
+
+    mossa_uci serve SOLO alla scoperta (differenziale che richiede la mossa): se
+    non viene passata, la scoperta non viene valutata (gli altri pattern restano).
     """
     board_prima = chess.Board(fen_prima)
     board_dopo = chess.Board(fen_dopo)
@@ -198,6 +253,9 @@ def rileva_tipo_tattico(fen_prima, fen_dopo, colore_che_ha_mosso):
         return "pezzo_in_presa"
     if trova_forchetta(board_dopo, colore_che_ha_mosso):
         return "forchetta"
+    if mossa_uci and scoperta_creata(
+            board_prima, board_dopo, mossa_uci, colore_che_ha_mosso):
+        return "scoperta"
     if inchiodatura_creata(board_prima, board_dopo, colore_che_ha_mosso):
         return "inchiodatura"
     if trova_infilata(board_dopo, colore_che_ha_mosso):
@@ -209,23 +267,27 @@ if __name__ == "__main__":
     casi = [
         ("Torre indifesa attaccata",
          "8/8/8/8/8/8/8/4K3 w - - 0 1", "3rk3/8/8/3R4/8/8/8/5K2 b - - 0 1",
-         chess.WHITE, "pezzo_in_presa"),
+         chess.WHITE, "pezzo_in_presa", None),
         ("Forchetta di cavallo",
          "8/8/8/8/8/8/8/4K3 w - - 0 1", "Q3R3/8/n6k/8/8/8/8/7K b - - 0 1",
-         chess.WHITE, "forchetta"),
+         chess.WHITE, "forchetta", None),
+        ("Scacco di scoperta (Ne4-c5 scopre Re1)",
+         "4k3/8/8/8/4N3/8/8/K3R3 w - - 0 1",
+         "4k3/8/8/2N5/8/8/8/K3R3 b - - 0 1",
+         chess.WHITE, "scoperta", "e4c5"),
         ("Inchiodatura creata (Ng1-e2)",
          "4r3/8/8/8/8/8/8/4K1N1 w - - 0 1", "4r3/8/8/8/8/8/4N3/4K3 b - - 0 1",
-         chess.WHITE, "inchiodatura"),
+         chess.WHITE, "inchiodatura", None),
         ("Posizione iniziale dopo e4",
          chess.STARTING_FEN,
          "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
-         chess.WHITE, None),
+         chess.WHITE, None, "e2e4"),
     ]
     print()
     print("Esempi di rilevamento tipo tattico:")
     print()
-    for descr, fp, fd, colore, atteso in casi:
-        ris = rileva_tipo_tattico(fp, fd, colore)
+    for descr, fp, fd, colore, atteso, uci in casi:
+        ris = rileva_tipo_tattico(fp, fd, colore, uci)
         ok = "OK" if ris == atteso else "DIVERSO"
         print(f"  [{ok}] {descr:32} -> {ris}")
     print()

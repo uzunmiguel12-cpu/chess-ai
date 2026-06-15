@@ -3,7 +3,8 @@ Modulo arricchimento (Fase 3) - aggiunge le categorie alle partite analizzate.
 
 Legge i file di analisi grezza da data/analisi/, e per ogni mossa aggiunge:
 - gravita e fase  (da categorizza)
-- tipo_tattico    (da tattica: per ora "pezzo_in_presa", solo sugli errori veri)
+- tipo_tattico    (da tattica: la tattica della MOSSA MIGLIORE = tattica mancata,
+                   solo sugli errori veri)
 
 Salva i risultati in data/categorie/. Tiene separati i due stadi: l'analisi
 grezza (costosa, Stockfish) e le categorie (rigenerabili in fretta).
@@ -40,22 +41,41 @@ GRAVITA_DA_ANALIZZARE = {"mistake", "blunder"}
 
 def _aggiungi_tipo_tattico(mossa):
     """
-    Se la mossa e' un errore vero, controlla se ha lasciato un pezzo in presa.
-    Ricostruisce la posizione DOPO la mossa partendo da fen (prima) + move_uci,
-    e guarda se chi ha mosso ha un pezzo catturabile.
+    Se la mossa e' un errore vero, determina QUALE tattica si sarebbe dovuta
+    giocare: un errore e' una TATTICA MANCATA, quindi il tipo si calcola dalla
+    MOSSA MIGLIORE (best_move_uci), non dalla mossa giocata.
+
+    Ricostruisce la posizione DOPO la best move partendo da fen (prima) +
+    best_move_uci, mantenendo come colore_che_muove il colore di chi DOVEVA
+    giocare la best move (= io, board.turn della posizione di partenza), e guarda
+    quale pattern tattico avrebbe creato.
+
+    Casi limite -> tipo_tattico = None:
+    - best_move_uci mancante o vuoto;
+    - best_move_uci illegale nella posizione (try/except attorno a push);
+    - la best move non produce alcun pattern noto: e' un errore POSIZIONALE vero,
+      deve restare non_tattico (rileva_tipo_tattico restituisce None).
+
     Modifica e restituisce la mossa.
     """
     if mossa.get("gravita") not in GRAVITA_DA_ANALIZZARE:
         mossa["tipo_tattico"] = None
         return mossa
 
+    best_move_uci = mossa.get("best_move_uci")
+    if not best_move_uci:
+        mossa["tipo_tattico"] = None
+        return mossa
+
     try:
         board = chess.Board(mossa["fen"])
-        colore_che_muove = board.turn  # chi sta per muovere = chi fa la mossa
+        colore_che_muove = board.turn  # chi DOVEVA giocare la best move = io
         fen_prima = mossa["fen"]
-        board.push(chess.Move.from_uci(mossa["move_uci"]))
-        fen_dopo = board.fen()
-        mossa["tipo_tattico"] = rileva_tipo_tattico(fen_prima, fen_dopo, colore_che_muove)
+        board.push(chess.Move.from_uci(best_move_uci))
+        fen_dopo_best = board.fen()
+        mossa["tipo_tattico"] = rileva_tipo_tattico(
+            fen_prima, fen_dopo_best, colore_che_muove, best_move_uci
+        )
     except Exception as e:
         logger.warning("Tipo tattico non calcolabile per una mossa: %s", e)
         mossa["tipo_tattico"] = None
@@ -71,7 +91,7 @@ def arricchisci_partita(dato_partita):
     mosse_arricchite = []
     for m in dato_partita["mosse"]:
         m_cat = categorizza_mossa(m)        # gravita + fase (+ tipo_tattico=None)
-        m_cat = _aggiungi_tipo_tattico(m_cat)  # eventualmente "pezzo_in_presa"
+        m_cat = _aggiungi_tipo_tattico(m_cat)  # tattica mancata (dalla best move)
         mosse_arricchite.append(m_cat)
     arricchito["mosse"] = mosse_arricchite
     return arricchito
