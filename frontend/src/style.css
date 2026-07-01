@@ -413,6 +413,36 @@ button:hover { background: #386; }
 /* Freccetta di tendenza accanto al tema nel piano (Tappa D). */
 .piano-tendenza { font-size: 0.9rem; cursor: help; }
 
+/* --- Studio per fasi di gioco (sezione separata dal piano tattico) --- */
+/* Frase-denominatore: dichiarata in chiaro, impedisce di confondere questi tassi
+   con quelli tattici (denominatori diversi). Riusa lo stile della nota-piccola. */
+.fasi-denominatore {
+  max-width: 600px;
+  margin: 0.3rem auto 0.6rem;
+  text-align: left;
+  font-size: 0.82rem;
+  color: #777;
+  font-style: italic;
+}
+/* Nome del tipo di finale: come qualita-nome ma piu' largo (etichette lunghe). */
+.fasi-nome { width: auto; min-width: 8rem; text-transform: capitalize; }
+/* Colonna dei numeri piu' larga qui: "3.4% · 3443 mosse" non sta nei 6rem base. */
+.fasi-riga .qualita-num { width: auto; min-width: 9rem; white-space: nowrap; }
+/* Peggiore reale: evidenziato in rosso come la debolezza principale delle fasi. */
+.fasi-riga.fasi-peggiore { background: #fdecec; border-radius: 6px; }
+.fasi-riga.fasi-peggiore .fasi-nome { color: #a33; font-weight: 600; }
+.fasi-fill-peggiore { background: #c0392b; }
+/* Tipi fragili (pochi dati): smorzati, mai evidenziati come peggiore. */
+.fasi-riga.fasi-fragile { opacity: 0.5; }
+/* Raccomandazione in evidenza (riusa lo stile della progressione del piano). */
+.fasi-raccomandazione {
+  max-width: 600px;
+  margin: 0.7rem auto 0.3rem;
+  text-align: left;
+  font-size: 0.9rem;
+  color: #3a2e22;
+}
+
 /* --- Confronto nel tempo (Tappa D): partite recenti vs storico --- */
 #carenze h3 small { font-weight: 400; color: #888; font-size: 0.8rem; }
 .confronto-vuoto {
@@ -596,4 +626,160 @@ button:hover { background: #386; }
   font-size: 0.78rem;
   color: #999;
   font-family: monospace;
+}
+
+/* --- Schermata "La scienza dietro il sistema" --- */
+#toggle-scienza { background: #3a6ea5; margin-left: 0.5rem; }
+#toggle-scienza:hover { background: #2a527c; }
+#scienza { margin-top: 2rem; }
+#scienza h2 { font-size: 1.2rem; }
+#scienza h3 {
+  font-size: 1.05rem;
+  color: #2a3550;
+  margin: 1.8rem 0 0.5rem;
+  text-align: left;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+#scienza h4 {
+  font-size: 0.95rem;
+  color: #444;
+  margin: 0 0 0.3rem;
+}
+/* Banner di onesta' (vincolo non negoziabile): in evidenza, stile "nota seria". */
+.scienza-onesta-banner {
+  max-width: 600px;
+  margin: 0.4rem auto 1rem;
+  padding: 0.7rem 1rem;
+  background: #f3f6fb;
+  border-left: 4px solid #3a6ea5;
+  border-radius: 6px;
+  text-align: left;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: #2a3550;
+}
+.scienza-testo {
+  max-width: 600px;
+  margin: 0.3rem auto 0.6rem;
+  text-align: left;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #444;
+}
+.scienza-disclaimer {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: #333;
+}
+.scienza-disclaimer-titolo { margin: 0 0 0.4rem; font-size: 1rem; color: #2a3550; }
+/* Didascalia sotto i grafici (fonte + natura illustrativa dei dati). */
+.grafico-didascalia {
+  max-width: 600px;
+  margin: 0.4rem auto 0;
+  color: #666;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  text-align: left;
+}
+
+/* Banda QUALITATIVA di Vygotskij (NON una barra numerica). */
+.scienza-vygotskij {
+  max-width: 600px;
+  margin: 0.8rem auto;
+  padding: 0.7rem 1rem;
+  background: #f4f0fb;
+  border-left: 4px solid #7e57c2;
+  border-radius: 6px;
+  text-align: left;
+}
+.scienza-vygotskij-eti {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #5e35b1;
+  margin-bottom: 0.3rem;
+}
+.scienza-vygotskij p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: #3a2e4a;
+}
+
+/* Diagramma dei tre flussi (HTML/CSS, niente grafico inventato). */
+.scienza-flussi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  max-width: 600px;
+  margin: 0.6rem auto;
+}
+.scienza-flusso {
+  flex: 1 1 160px;
+  text-align: left;
+  padding: 0.6rem 0.8rem;
+  background: #f7f8fa;
+  border: 1px solid #e3e7ee;
+  border-radius: 8px;
+}
+.scienza-flusso-titolo {
+  display: block;
+  font-weight: 700;
+  color: #2a3550;
+  margin-bottom: 0.25rem;
+}
+.scienza-flusso-testo { font-size: 0.85rem; line-height: 1.45; color: #555; }
+
+/* Blocchi-meccanismo (fascia Elo adattiva, anti-diluizione). */
+.scienza-meccanismo {
+  max-width: 600px;
+  margin: 0.8rem auto;
+  padding: 0.7rem 1rem;
+  background: #f7f8fa;
+  border-left: 4px solid #4a7;
+  border-radius: 6px;
+  text-align: left;
+}
+.scienza-meccanismo p {
+  margin: 0.3rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #444;
+}
+/* Nota onesta sulla differenza col paper: stessa enfasi delle altre note oneste. */
+.scienza-nota-onesta {
+  margin-top: 0.5rem !important;
+  padding: 0.5rem 0.7rem;
+  background: #fff8e6;
+  border-radius: 6px;
+  font-size: 0.85rem !important;
+  color: #6b5414 !important;
+}
+
+/* Stati-vuoto onesti della sezione 4. */
+.scienza-dati-vuoto,
+.scienza-evoluzione-vuoto {
+  max-width: 600px;
+  margin: 0.4rem auto;
+  text-align: left;
+  font-size: 0.9rem;
+  color: #666;
+  background: #f3f6fb;
+  border-left: 4px solid #9bb;
+  border-radius: 6px;
+  padding: 0.7rem 0.9rem;
+  line-height: 1.5;
+}
+.scienza-evoluzione { margin-top: 1rem; }
+.scienza-evoluzione h4 {
+  max-width: 600px;
+  margin: 1rem auto 0.3rem;
+  text-align: left;
 }

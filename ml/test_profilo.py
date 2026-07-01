@@ -84,6 +84,44 @@ def test_debolezza_per_tasso(cartella_tasso):
     assert p["debolezza_principale"] == "finale"
 
 
+def test_espone_finali_per_tipo(cartella_tasso):
+    """Il profilo espone finali_per_tipo (FASI DI GIOCO) calcolato in ml/finali.py.
+    Le 4 mie mosse in finale (POS_FIN e' un finale di pedoni) finiscono nel tipo
+    finale_pedoni, col SUO denominatore (mosse in finale di quel tipo)."""
+    p = costruisci_profilo("Miguel", cartella_tasso)
+    assert "finali_per_tipo" in p
+    fpt = p["finali_per_tipo"]
+    assert fpt["per_tipo"]["finale_pedoni"]["mosse"] == 4
+    assert "min_mosse" in fpt
+
+
+def test_finali_per_tipo_esclude_bullet():
+    """Le mosse delle partite bullet NON entrano in finali_per_tipo (in bullet
+    l'errore e' il tempo, non la posizione), coerentemente con analizza_finali.py.
+    Restano invece nel resto del profilo (mosse_totali le conta tutte)."""
+    cartella = tempfile.mkdtemp()
+    try:
+        # 4 mie mosse in finale di pedoni per file: una in un file bullet_* (esclusa
+        # dai finali) e una in un file normale (conteggiata).
+        mosse = []
+        for _ in range(4):
+            mosse.append(_m("best", "finale"))
+            mosse.append(_m("best", "finale"))  # mossa dell'avversario
+        p = {"bianco": "Miguel", "nero": "Avv", "risultato": "1-0", "mosse": mosse}
+        with open(os.path.join(cartella, "bullet_0001.json"), "w", encoding="utf-8") as f:
+            json.dump(p, f)
+        with open(os.path.join(cartella, "rapid_0001.json"), "w", encoding="utf-8") as f:
+            json.dump(p, f)
+
+        prof = costruisci_profilo("Miguel", cartella)
+        # Nel profilo generale ci sono tutte le mosse (bullet + non bullet).
+        assert prof["mosse_totali"] == 8
+        # Ma i finali per tipo contano SOLO le 4 mosse del file non-bullet.
+        assert prof["finali_per_tipo"]["per_tipo"]["finale_pedoni"]["mosse"] == 4
+    finally:
+        shutil.rmtree(cartella)
+
+
 # --- Dimensione tattica ---
 
 def test_conteggio_tattico(cartella_tattica):

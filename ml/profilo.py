@@ -20,6 +20,16 @@ import glob
 import logging
 from collections import Counter
 
+# Tassi di errore posizionale per tipo di finale (logica riusabile in ml/finali.py).
+# Import "piatto" quando ml/ e' su sys.path (script da ml/, o ml/ aggiunto al path
+# da chi importa, es. api/server.py); fallback a ml.* per l'import "a pacchetto".
+try:
+    from finali import tassi_finali_per_tipo
+    from converti_vantaggio import e_bullet
+except Exception:  # pragma: no cover - solo fallback se l'import piatto fallisce
+    from ml.finali import tassi_finali_per_tipo
+    from ml.converti_vantaggio import e_bullet
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -81,6 +91,12 @@ def costruisci_profilo(nome, cartella=CARTELLA_CATEGORIE, solo_file=None):
     logger.info("Cerco le partite di '%s' in %d file", nome, len(file_partite))
 
     tutte_mosse = []
+    # Mosse delle SOLE partite non-bullet: alimentano la misura dei finali per tipo.
+    # In bullet una non-conversione/errore posizionale e' spesso il tempo che scade,
+    # non la posizione; il bullet e' gia' escluso da tutta la misurazione dei finali
+    # (vedi analizza_finali.py). La cadenza si deduce dal nome file, con la STESSA
+    # determinazione usata altrove (converti_vantaggio.e_bullet).
+    mosse_non_bullet = []
     partite_trovate = 0
     for percorso in file_partite:
         with open(percorso, "r", encoding="utf-8") as f:
@@ -89,6 +105,8 @@ def costruisci_profilo(nome, cartella=CARTELLA_CATEGORIE, solo_file=None):
         if mosse_giocatore:
             partite_trovate += 1
             tutte_mosse.extend(mosse_giocatore)
+            if not e_bullet(percorso):
+                mosse_non_bullet.extend(mosse_giocatore)
 
     if partite_trovate == 0:
         logger.warning("Nessuna partita trovata per '%s'", nome)
@@ -144,6 +162,13 @@ def costruisci_profilo(nome, cartella=CARTELLA_CATEGORIE, solo_file=None):
         "conteggio_tattico": dict(conteggio_tattico),
         "percentuali_tattico": percentuali_tattico,
         "tattico_per_fase": {t: dict(c) for t, c in tattico_per_fase.items()},
+        # FASI DI GIOCO: tassi di errore posizionale per TIPO di finale, sulle mosse
+        # gia' lette MA ESCLUSO il bullet (rispetta solo_file). E' una misura col SUO
+        # denominatore (mosse giocate in finale di quel tipo), da tenere separata dal
+        # piano tattico (che usa le mosse totali). Stesso ciclo di vita del resto del
+        # profilo. Il bullet e' escluso coerentemente con analizza_finali.py: la
+        # non-conversione bullet e' il tempo, non la posizione.
+        "finali_per_tipo": tassi_finali_per_tipo(mosse_non_bullet),
     }
     logger.info("Profilo costruito: %d partite, %d errori gravi",
                 partite_trovate, totale_errori)

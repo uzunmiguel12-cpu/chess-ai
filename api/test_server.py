@@ -31,7 +31,7 @@ from server import (
     _carica_puzzle_errori, _riempi_coda_errori,
     profilo_carenze, _arricchisci_profilo, storico_profili,
     diagnosi_conversione_endpoint,
-    _interlaccia_blocchi,
+    _interlaccia_blocchi, _studio_fasi,
 )
 
 
@@ -1528,3 +1528,83 @@ def test_interlaccia_coda_vuota():
     """Caso limite: nessun blocco/puzzle -> coda vuota, nessun crash."""
     assert _interlaccia_blocchi([], dimensione_mini=5) == []
     assert _interlaccia_blocchi([[]], dimensione_mini=5) == []
+
+
+# --- FASI DI GIOCO: sezione _studio_fasi (separata dal piano tattico) --------
+
+def _profilo_finto_finali(tipo_peggiore="finale_torre"):
+    """Profilo minimo con finali_per_tipo, per testare la sezione FASI DI GIOCO
+    senza dover analizzare partite vere. Il tipo peggiore ha tasso piu' alto e
+    abbastanza mosse (non fragile)."""
+    per_tipo = {
+        "finale_pedoni": {"mosse": 40, "errori": 2, "tasso": 5.0, "fragile": False},
+        "finale_torre": {"mosse": 100, "errori": 12, "tasso": 12.0, "fragile": False},
+        "finale_minori": {"mosse": 10, "errori": 3, "tasso": 30.0, "fragile": True},
+        "finale_donna": {"mosse": 50, "errori": 1, "tasso": 2.0, "fragile": False},
+        "finale_misto": {"mosse": 30, "errori": 2, "tasso": 6.7, "fragile": False},
+    }
+    return {
+        "finali_per_tipo": {
+            "per_tipo": per_tipo,
+            "tipo_peggiore": tipo_peggiore,
+            "tasso_peggiore": per_tipo[tipo_peggiore]["tasso"],
+            "tipo_migliore": "finale_donna",
+            "min_mosse": 30,
+        }
+    }
+
+
+def test_studio_fasi_denominatore_dichiarato():
+    """La sezione dichiara ESPLICITAMENTE il suo denominatore, diverso dal piano
+    tattico (mosse totali)."""
+    sf = _studio_fasi(_profilo_finto_finali())
+    assert "mosse giocate in finale" in sf["denominatore"]
+    assert "mosse totali" in sf["denominatore"]
+
+
+def test_studio_fasi_raccomanda_tema_finale_di_torre():
+    """Se il tipo peggiore e' il finale di torre, la raccomandazione rimanda al tema
+    gia' esistente ('finale_di_torre' -> rookEndgame) e lo espone come tema_libero."""
+    sf = _studio_fasi(_profilo_finto_finali("finale_torre"))
+    assert sf["tipo_peggiore"] == "finale_torre"
+    assert sf["tema_libero"] == "finale_di_torre"
+    assert "finale di torre" in sf["raccomandazione"]
+    # I tassi sono ordinati col peggiore in testa ed evidenziato.
+    assert sf["tassi"][0]["tipo"] == "finale_torre"
+    assert sf["tassi"][0]["peggiore"] is True
+
+
+def test_studio_fasi_tipo_fragile_non_e_peggiore():
+    """Il tipo fragile (sotto MIN_MOSSE) non viene eletto peggiore anche se ha il
+    tasso piu' alto in assoluto."""
+    sf = _studio_fasi(_profilo_finto_finali())
+    # finale_minori ha tasso 30% ma e' fragile: non e' il peggiore.
+    assert sf["tipo_peggiore"] != "finale_minori"
+
+
+def test_studio_fasi_senza_dati_e_onesto():
+    """Senza abbastanza mosse in finale (nessun tipo eletto) la sezione lo dice,
+    invece di raccomandare un tema a caso."""
+    sf = _studio_fasi({"finali_per_tipo": {"per_tipo": {}, "tipo_peggiore": None,
+                                           "tasso_peggiore": None,
+                                           "tipo_migliore": None, "min_mosse": 30}})
+    assert sf["disponibile"] is False
+    assert sf["tema_libero"] is None
+    assert "Non ci sono abbastanza mosse in finale" in sf["raccomandazione"]
+
+
+def test_report_espone_studio_fasi():
+    """Il report arricchito espone 'studio_fasi' accanto a 'piano_studio'."""
+    profilo = {
+        "mosse_totali": 100,
+        "conteggio_tattico": {},
+        "percentuali_tattico": {},
+        "tasso_errore_per_fase": {"apertura": 0.0, "mediogioco": 0.0, "finale": 0.0},
+        "mosse_per_fase": {"apertura": 50, "mediogioco": 30, "finale": 20},
+        "tattico_per_fase": {},
+        "finali_per_tipo": _profilo_finto_finali()["finali_per_tipo"],
+    }
+    report = _arricchisci_profilo(profilo)
+    assert "piano_studio" in report          # non toccato
+    assert "studio_fasi" in report
+    assert report["studio_fasi"]["tipo_peggiore"] == "finale_torre"

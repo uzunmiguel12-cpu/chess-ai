@@ -1044,6 +1044,100 @@ def _piano_studio(profilo, tasso_su_mosse, ogni_quante_mosse, temi_rilevanti):
     }
 
 
+# Mappa il TIPO di finale (classificazione di ml/finali.py: finale_torre/pedoni/
+# minori/donna/misto) al tema allenabile GIA' esistente in TEMI (vedi TEMI_CATEGORIE
+# "Finali"). Solo i tipi con un tema unico sono mappati; finale_minori (alfieri O
+# cavalli, ambiguo) e finale_misto NON hanno un tema dedicato -> raccomandazione
+# generica, senza inventare puzzle.
+FINALE_A_TEMA = {
+    "finale_torre": "finale_di_torre",
+    "finale_pedoni": "finale_di_pedoni",
+    "finale_donna": "finale_di_donna",
+}
+
+
+def _studio_fasi(profilo):
+    """
+    SEZIONE "FASI DI GIOCO" del report (separata dal piano tattico): i tassi di errore
+    posizionale per TIPO di finale, letti da profilo["finali_per_tipo"] (calcolato in
+    ml/finali.py). Ha il SUO DENOMINATORE - le mosse giocate in finale di quel tipo -
+    che NON e' quello del piano tattico (mosse totali): sono due misure diverse, per
+    questo stanno in due sezioni distinte. La raccomandazione rimanda a un tema GIA'
+    esistente (per il finale di torre, 'finale_di_torre'); testo generico per i tipi
+    senza tema dedicato. NON inventa puzzle e NON pesa nel piano tattico.
+
+    Restituisce {disponibile, denominatore, tassi, tipo_peggiore, tasso_peggiore,
+    tema_libero, min_mosse, raccomandazione}.
+    """
+    finali = profilo.get("finali_per_tipo") or {}
+    per_tipo = finali.get("per_tipo", {})
+    min_mosse = finali.get("min_mosse")
+
+    # DENOMINATORE DICHIARATO: e' il cuore dell'onesta' di questa sezione.
+    denominatore = ("tasso su mosse giocate in finale di quel tipo - diverso dal piano "
+                    "tattico, che usa le mosse totali")
+
+    def etichetta(tipo):
+        return tipo.replace("_", " ")
+
+    tipo_peggiore = finali.get("tipo_peggiore")
+    tasso_peggiore = finali.get("tasso_peggiore")
+
+    # Tassi per tipo, solo i tipi con mosse giocate, ordinati per tasso decrescente
+    # (il peggiore in testa), evidenziando quello eletto peggiore fra i NON fragili.
+    tassi = []
+    for tipo, v in per_tipo.items():
+        if v.get("mosse", 0) <= 0:
+            continue
+        tassi.append({
+            "tipo": tipo,
+            "etichetta": etichetta(tipo),
+            "mosse": v.get("mosse", 0),
+            "errori": v.get("errori", 0),
+            "tasso": v.get("tasso", 0.0),
+            "fragile": v.get("fragile", False),
+            "peggiore": (tipo == tipo_peggiore),
+        })
+    # I NON fragili prima (per tasso decrescente), poi i fragili in coda: cosi' il
+    # peggiore reale sta in testa e un tipo fragile con tasso alto ma poche mosse non
+    # inganna scalando in cima.
+    tassi.sort(key=lambda r: (r["fragile"], -r["tasso"]))
+
+    disponibile = tipo_peggiore is not None
+
+    # Tema-libero del frontend, SOLO se il tipo peggiore ha un tema dedicato esistente
+    # (come piano_studio espone tema_libero per agganciarci i pulsanti del flusso temi).
+    tema_finale = FINALE_A_TEMA.get(tipo_peggiore)
+    tema_libero = tema_finale if tema_finale in TEMI_DISPONIBILI else None
+
+    # RACCOMANDAZIONE onesta.
+    if not disponibile:
+        raccomandazione = (
+            f"Non ci sono abbastanza mosse in finale (soglia {min_mosse} per tipo) "
+            f"per dire dove sbagli di piu': niente diagnosi affidabile per tipo qui.")
+    elif tema_libero is not None:
+        raccomandazione = (
+            f"Il tuo tasso di errore posizionale piu' alto in finale e' nel "
+            f"«{etichetta(tipo_peggiore)}» ({tasso_peggiore}%): allenalo in "
+            f"Temi > Finali > «{etichetta(tema_finale)}».")
+    else:
+        raccomandazione = (
+            f"Il tuo tasso di errore posizionale piu' alto in finale e' nel "
+            f"«{etichetta(tipo_peggiore)}» ({tasso_peggiore}%): non c'e' un tema-puzzle "
+            f"dedicato a questo tipo, lavoralo con lo studio dei finali di quel tipo.")
+
+    return {
+        "disponibile": disponibile,
+        "denominatore": denominatore,
+        "tassi": tassi,
+        "tipo_peggiore": tipo_peggiore,
+        "tasso_peggiore": tasso_peggiore,
+        "tema_libero": tema_libero,
+        "min_mosse": min_mosse,
+        "raccomandazione": raccomandazione,
+    }
+
+
 def _arricchisci_profilo(profilo, confronto=None):
     """
     Arricchisce il profilo puro (output di costruisci_profilo) con i dati del REPORT
@@ -1095,6 +1189,10 @@ def _arricchisci_profilo(profilo, confronto=None):
     piano_studio = _piano_studio(profilo, tasso_su_mosse_per_tipo,
                                  ogni_quante_mosse_per_tipo, temi_rilevanti)
 
+    # 5-bis. FASI DI GIOCO: sezione separata col SUO denominatore (mosse in finale),
+    #        indipendente dal piano tattico (che usa le mosse totali).
+    studio_fasi = _studio_fasi(profilo)
+
     # 6. TENDENZA (Tappa D): se c'e' un confronto, annoto ogni voce del piano con la
     #    tendenza del suo tema (migliorato/peggiorato/stabile) sulle partite recenti.
     if confronto and confronto.get("voci"):
@@ -1117,6 +1215,8 @@ def _arricchisci_profilo(profilo, confronto=None):
         "fasi_divario_piccolo": fasi_divario_piccolo,
         "sintesi": sintesi,
         "piano_studio": piano_studio,
+        # FASI DI GIOCO: accanto al piano tattico, MA con denominatore diverso.
+        "studio_fasi": studio_fasi,
         # Confronto "partite nuove vs storico" (Tappa D); None se non disponibile.
         "confronto": confronto,
     })

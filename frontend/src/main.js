@@ -50,6 +50,7 @@ let tentativi = 0;         // tentativi sbagliati sul puzzle corrente
 let esitoInviato = false;  // per non inviare due volte l'esito dello stesso puzzle
 let puzzleCorrente = null; // dati del puzzle dal server
 let ultimaMossa = null;    // [from, to] dell'ultima mossa, per evidenziarla
+let ultimaMossaSbagliata = null; // [from, to] dell'ultimo tentativo fallito, per la freccia rossa
 
 // Elementi della pagina.
 const elBoard = document.getElementById('board');
@@ -76,6 +77,7 @@ const elCarenzeCome = document.getElementById('carenze-come');
 const elCarenzeDove = document.getElementById('carenze-dove');
 const elCarenzeQuanto = document.getElementById('carenze-quanto');
 const elCarenzePiano = document.getElementById('carenze-piano');
+const elCarenzeFasi = document.getElementById('carenze-fasi');
 const elCarenzeConfronto = document.getElementById('carenze-confronto');
 const elCarenzeConversione = document.getElementById('carenze-conversione');
 const elEvoluzioneVuoto = document.getElementById('evoluzione-vuoto');
@@ -174,6 +176,7 @@ async function caricaProssimoPuzzle() {
   tentativi = 0;
   esitoInviato = false;
   ultimaMossa = null;  // azzero: non deve restare l'evidenziazione del puzzle precedente
+  ultimaMossaSbagliata = null;  // azzero: la freccia rossa non deve passare al puzzle successivo
   if (board) board.setShapes([]);  // pulisco eventuali frecce-soluzione del puzzle precedente
   if (elBadgeOrigine) elBadgeOrigine.hidden = true;
   try {
@@ -318,6 +321,7 @@ function onMossaGiocatore(orig, dest) {
   } else {
     // Mossa sbagliata.
     tentativi += 1;
+    ultimaMossaSbagliata = [orig, dest]; // la mossa appena giocata (per la freccia rossa alla rivelazione)
     if (tentativi >= MAX_TENTATIVI) {
       // Mostro la soluzione e fermo il puzzle. Mostro SOLO la prima mossa
       // (soluzione[0]) anche per i puzzle multi-mossa: è chiaro e sufficiente.
@@ -325,9 +329,16 @@ function onMossaGiocatore(orig, dest) {
       const san = uciToSan(sol);  // SAN leggibile (fallback su UCI grezzo).
       elInfo.innerHTML = `<span class="ko">❌ La mossa giusta era ${san}. Guarda la freccia. Passa al prossimo.</span>`;
       aggiornaBoard();
-      // Disegno la freccia-soluzione con il sistema nativo di chessground.
+      // Disegno le frecce con il sistema nativo di chessground: la ROSSA dell'ultima
+      // mia mossa sbagliata (se c'è) e la VERDE della soluzione. La verde è spinta DOPO
+      // nell'array: se le due frecce si sovrappongono, la soluzione resta visibile sopra.
       const [orig, dest] = uciCaselle(sol);
-      board.setShapes([{ orig, dest, brush: 'green' }]);
+      const shapes = [];
+      if (ultimaMossaSbagliata) {
+        shapes.push({ orig: ultimaMossaSbagliata[0], dest: ultimaMossaSbagliata[1], brush: 'red' });
+      }
+      shapes.push({ orig, dest, brush: 'green' });
+      board.setShapes(shapes);
       board.set({ movable: { color: undefined } });
       if (!esitoInviato) {
         inviaEsito('fallito');
@@ -376,8 +387,9 @@ function pulisciScacchiera() {
   soluzione = [];
   puzzleCorrente = null;
   ultimaMossa = null;
+  ultimaMossaSbagliata = null;
   if (board) {
-    board.setShapes([]);  // via le frecce verdi della soluzione
+    board.setShapes([]);  // via le frecce (verde soluzione + rossa errore)
     board.set({ lastMove: undefined, selected: undefined, movable: { color: undefined } });
   }
   if (elBadgeOrigine) elBadgeOrigine.hidden = true;
@@ -895,6 +907,10 @@ function renderCarenze(p) {
   // 5. PIANO DI STUDIO: la parte azionabile, sotto il report.
   renderPianoStudio(p.piano_studio, p.confronto);
 
+  // 5-bis. FASI DI GIOCO: sezione separata, sotto il piano tattico, col SUO
+  //         denominatore (mosse in finale, non mosse totali). Onesta': scala distinta.
+  renderStudioFasi(p.studio_fasi);
+
   // 6. CONFRONTO nel tempo: stai migliorando davvero? (partite recenti vs storico).
   renderConfronto(p.confronto);
 
@@ -1092,6 +1108,64 @@ function renderPianoStudio(piano, confronto) {
   });
 }
 
+// Disegna il blocco "🎯 Studio per fasi di gioco — Finali" (studio_fasi): sezione
+// SEPARATA dal piano tattico, col SUO denominatore (mosse giocate in finale, non le
+// mosse totali). ONESTA': i tassi qui NON sono confrontabili con quelli tattici, per
+// questo stanno in una sezione a parte con la frase-denominatore dichiarata in chiaro
+// e una scala di barre tutta sua. La raccomandazione rimanda a un tema del flusso Temi
+// (se esiste), attivabile con un click riusando scegliTema (come il piano tattico).
+function renderStudioFasi(sf) {
+  // Non disponibile o senza tassi: niente sezione (nessun numero finto).
+  if (!sf || !sf.disponibile || !(sf.tassi && sf.tassi.length)) {
+    elCarenzeFasi.innerHTML = '';
+    return;
+  }
+
+  // Scala delle barre: da 0 al tasso massimo + margine (niente zero forzato
+  // ingannevole, coerente con R3). Le barre partono comunque da 0.
+  const maxTasso = Math.max(...sf.tassi.map((t) => t.tasso || 0));
+  const scala = maxTasso > 0 ? maxTasso * 1.15 : 1;
+
+  const righe = sf.tassi.map((t) => {
+    const largh = Math.round((100 * (t.tasso || 0)) / scala);
+    // Evidenzio SOLO il peggiore reale, mai un tipo "fragile" (pochi dati).
+    const evidenzia = t.peggiore && !t.fragile;
+    // Tag onesto: "pochi dati" per i fragili, "da allenare" per il peggiore reale.
+    const tag = t.fragile
+      ? '<span class="carenza-tag">pochi dati</span>'
+      : (evidenzia ? '<span class="carenza-tag">da allenare</span>' : '');
+    return `<li class="qualita-riga fasi-riga${evidenzia ? ' fasi-peggiore' : ''}${t.fragile ? ' fasi-fragile' : ''}">
+        <span class="qualita-nome fasi-nome">${etichettaCarenza(t.etichetta)}</span>
+        <span class="qualita-barra"><span class="qualita-fill${evidenzia ? ' fasi-fill-peggiore' : ''}" style="width:${largh}%"></span></span>
+        <span class="qualita-num">${t.tasso}% · ${t.mosse} mosse ${tag}</span>
+      </li>`;
+  }).join('');
+
+  // Frase-DENOMINATORE ben visibile: e' cio' che impedisce di confondere questi tassi
+  // con quelli tattici. NON va omessa.
+  const denom = sf.denominatore
+    ? `<p class="fasi-denominatore">${sf.denominatore}.</p>` : '';
+
+  // Raccomandazione in evidenza + pulsante che attiva il tema nel flusso Temi (se
+  // c'e' un tema dedicato), riusando lo stesso meccanismo del piano tattico.
+  const racc = sf.raccomandazione
+    ? `<p class="fasi-raccomandazione">${sf.raccomandazione}</p>` : '';
+  const bottone = sf.tema_libero
+    ? `<button class="piano-allena fasi-allena" data-tema="${sf.tema_libero}">allenati su questo finale</button>`
+    : '';
+
+  elCarenzeFasi.innerHTML =
+    `<h3>🎯 Studio per fasi di gioco — Finali</h3>
+     ${denom}
+     <ul class="qualita-lista fasi-lista">${righe}</ul>
+     ${racc}${bottone}`;
+
+  // Aggancio il pulsante al flusso temi (stesso meccanismo del piano tattico).
+  elCarenzeFasi.querySelectorAll('.piano-allena').forEach((b) => {
+    b.addEventListener('click', () => scegliTema(b.dataset.tema));
+  });
+}
+
 // Disegna il blocco "📈 Stai migliorando?" (Tappa D): confronto onesto tra le partite
 // recenti e lo storico. Se non c'e' ancora un confronto, spiega come ottenerlo.
 function renderConfronto(confronto) {
@@ -1274,6 +1348,248 @@ document.querySelectorAll('.toggle-progressi').forEach((btn) => {
 elToggleCarenze.addEventListener('click', () => {
   elCarenze.hidden = !elCarenze.hidden;
   if (!elCarenze.hidden) aggiornaCarenze();
+});
+
+// --- Schermata "La scienza dietro il sistema" ---
+// Tab informativa: spiega il principio (regola dell'85%) e come il sistema lo
+// applica. Sezioni 1-2 sono grafici teorici/illustrativi (statici); la sezione 4
+// legge /profilo e /storico-profili come il resto della pagina.
+
+const elScienza = document.getElementById('scienza');
+const elToggleScienza = document.getElementById('toggle-scienza');
+const elScienzaDatiVuoto = document.getElementById('scienza-dati-vuoto');
+const elScienzaDatiGrafici = document.getElementById('scienza-dati-grafici');
+const elScienzaEvolVuoto = document.getElementById('scienza-evoluzione-vuoto');
+const elScienzaEvolGrafico = document.getElementById('scienza-evoluzione-grafico');
+
+let graficoScienzaCurva = null;
+let graficoScienzaConvergenza = null;
+let graficoScienzaFasi = null;
+let graficoScienzaTemi = null;
+let graficoScienzaEvol = null;
+
+// SEZIONE 1 — curva teorica "velocità di apprendimento vs tasso di successo".
+// Forma asimmetrica: sale, picco intorno all'85%, poi cala PIU' ripida verso il 100%.
+// Asse Y qualitativo (niente numeri, come nel paper). Linea di riferimento verticale
+// sull'85% disegnata A MANO con un secondo dataset + borderDash (stesso metodo della
+// linea 85% in disegnaGraficoPrimoColpo: NON introduco chartjs-plugin-annotation).
+function disegnaCurvaApprendimento() {
+  const canvas = document.getElementById('grafico-scienza-curva');
+  if (!canvas) return;
+  if (graficoScienzaCurva) graficoScienzaCurva.destroy();
+  // Punti di controllo illustrativi della FORMA (non dati misurati). La salita
+  // 0->85 e' graduale, la discesa 85->100 e' piu' ripida: curva asimmetrica.
+  const curva = [
+    { x: 0, y: 0.12 }, { x: 20, y: 0.28 }, { x: 40, y: 0.48 },
+    { x: 60, y: 0.70 }, { x: 75, y: 0.88 }, { x: 85, y: 1.0 },
+    { x: 91, y: 0.78 }, { x: 96, y: 0.5 }, { x: 100, y: 0.18 },
+  ];
+  graficoScienzaCurva = new Chart(canvas, {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'velocità di apprendimento',
+          data: curva,
+          borderColor: '#3a6ea5',
+          backgroundColor: 'rgba(58,110,165,0.2)',
+          tension: 0.4,
+          fill: true,
+          pointRadius: 0,
+        },
+        {
+          // Linea di riferimento VERTICALE sull'85%: due punti sulla stessa x,
+          // tratteggiata. Stesso approccio "a mano" della linea 85% di R3.
+          label: 'zona ottimale ~85%',
+          data: [{ x: 85, y: 0 }, { x: 85, y: 1.05 }],
+          borderColor: '#c0392b',
+          borderDash: [6, 4],
+          borderWidth: 2,
+          pointRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: {
+          type: 'linear',
+          min: 0,
+          max: 100,
+          title: { display: true, text: 'tasso di successo (%)' },
+        },
+        y: {
+          min: 0,
+          max: 1.1,
+          // Asse qualitativo: niente numeri (come nel paper), solo il titolo.
+          ticks: { display: false },
+          title: { display: true, text: 'velocità di apprendimento (unità relative)' },
+        },
+      },
+      plugins: {
+        title: { display: true, text: 'Dove si impara di più' },
+        legend: { display: true },
+      },
+    },
+  });
+}
+
+// SEZIONE 2 — convergenza: SOLO 2 barre quantitative (Wilson 85%, Rosenshine ~80%).
+// Vygotskij NON e' una barra (sarebbe un falso quantitativo): vive come banda
+// qualitativa nell'HTML. Scala 70-90 per non drammatizzare.
+function disegnaConvergenza() {
+  const canvas = document.getElementById('grafico-scienza-convergenza');
+  if (!canvas) return;
+  if (graficoScienzaConvergenza) graficoScienzaConvergenza.destroy();
+  graficoScienzaConvergenza = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: ['Wilson et al. (2019)', 'Rosenshine (~2012)'],
+      datasets: [{
+        label: 'tasso di successo ottimale (%)',
+        data: [85, 80],
+        backgroundColor: ['#3a6ea5', '#4a7'],
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          min: 70,
+          max: 90,
+          title: { display: true, text: 'tasso di successo ottimale (%)' },
+        },
+      },
+      plugins: {
+        title: { display: true, text: 'Due risultati quantitativi a confronto' },
+        legend: { display: false },
+      },
+    },
+  });
+}
+
+// SEZIONE 4 — tasso d'errore per fase (apertura/mediogioco/finale): dati reali da /profilo.
+function disegnaScienzaFasi(tassoFase) {
+  const canvas = document.getElementById('grafico-scienza-fasi');
+  if (!canvas) return;
+  const chiavi = FASI_CARENZE.filter((f) => tassoFase[f] != null);
+  if (graficoScienzaFasi) graficoScienzaFasi.destroy();
+  graficoScienzaFasi = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: chiavi,
+      datasets: [{
+        label: "% delle tue mosse con errore",
+        data: chiavi.map((f) => tassoFase[f]),
+        backgroundColor: '#b5651d',
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: '% delle mosse' } },
+        x: { title: { display: true, text: 'fase' } },
+      },
+      plugins: {
+        title: { display: true, text: "Il tuo tasso d'errore per fase" },
+        legend: { display: false },
+      },
+    },
+  });
+}
+
+// SEZIONE 4 — tasso d'errore per tema tattico (pezzo_in_presa, forchetta...): da /profilo.
+function disegnaScienzaTemi(tassoTipo) {
+  const canvas = document.getElementById('grafico-scienza-temi');
+  if (!canvas) return;
+  // Tutti i tipi tranne "non_tattico", ordinati per tasso decrescente.
+  const chiavi = Object.keys(tassoTipo)
+    .filter((t) => t !== 'non_tattico')
+    .sort((a, b) => (tassoTipo[b] || 0) - (tassoTipo[a] || 0));
+  if (graficoScienzaTemi) graficoScienzaTemi.destroy();
+  graficoScienzaTemi = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: chiavi.map((t) => t.replace(/_/g, ' ')),
+      datasets: [{
+        label: '% delle tue mosse con errore',
+        data: chiavi.map((t) => tassoTipo[t]),
+        backgroundColor: '#3a6ea5',
+      }],
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: '% delle mosse' } },
+        x: { title: { display: true, text: 'tema tattico' } },
+      },
+      plugins: {
+        title: { display: true, text: "Il tuo tasso d'errore per tema" },
+        legend: { display: false },
+      },
+    },
+  });
+}
+
+// SEZIONE 4 — carica i dati reali e li disegna; gestisce gli stati-vuoto onesti.
+async function aggiornaScienzaDati() {
+  // Profilo: tassi per fase e per tema.
+  try {
+    const r = await fetch(`${BACKEND}/profilo`);
+    if (!r.ok) {
+      if (elScienzaDatiVuoto) elScienzaDatiVuoto.hidden = false;
+      if (elScienzaDatiGrafici) elScienzaDatiGrafici.hidden = true;
+    } else {
+      const p = await r.json();
+      if (elScienzaDatiVuoto) elScienzaDatiVuoto.hidden = true;
+      if (elScienzaDatiGrafici) elScienzaDatiGrafici.hidden = false;
+      disegnaScienzaFasi(p.tasso_errore_per_fase || {});
+      disegnaScienzaTemi(p.tasso_su_mosse_per_tipo || {});
+    }
+  } catch (err) {
+    console.error('Errore caricamento dati scienza:', err);
+    if (elScienzaDatiVuoto) elScienzaDatiVuoto.hidden = false;
+    if (elScienzaDatiGrafici) elScienzaDatiGrafici.hidden = true;
+  }
+
+  // Evoluzione: con < 2 rilevazioni mostro il MESSAGGIO onesto, mai un grafico finto.
+  try {
+    const r = await fetch(`${BACKEND}/storico-profili`).then((x) => x.json());
+    if (!r.ha_dati || !(r.punti && r.punti.length)) {
+      if (elScienzaEvolVuoto) elScienzaEvolVuoto.hidden = false;
+      if (elScienzaEvolGrafico) elScienzaEvolGrafico.hidden = true;
+      if (graficoScienzaEvol) { graficoScienzaEvol.destroy(); graficoScienzaEvol = null; }
+    } else {
+      // Ci sono almeno due rilevazioni: grafico VERO, riusando l'helper esistente.
+      if (elScienzaEvolVuoto) elScienzaEvolVuoto.hidden = true;
+      if (elScienzaEvolGrafico) elScienzaEvolGrafico.hidden = false;
+      const punti = r.punti;
+      const etichette = punti.map((p) => formattaTimestamp(p.timestamp));
+      const fasi = ['apertura', 'mediogioco', 'finale'];
+      disegnaGraficoEvoluzione(
+        'grafico-scienza-evoluzione',
+        (g) => { graficoScienzaEvol = g; },
+        graficoScienzaEvol,
+        etichette, punti, fasi, (p, k) => (p.tasso_fase || {})[k],
+        "La tua evoluzione per fase (tasso delle partite nuove di ogni periodo)");
+    }
+  } catch (err) {
+    console.error('Errore caricamento evoluzione scienza:', err);
+    if (elScienzaEvolVuoto) elScienzaEvolVuoto.hidden = false;
+    if (elScienzaEvolGrafico) elScienzaEvolGrafico.hidden = true;
+  }
+}
+
+// Mostra/nasconde la schermata scienza; quando la apro, disegno i grafici teorici
+// (statici) e carico i dati reali della sezione 4.
+elToggleScienza.addEventListener('click', () => {
+  elScienza.hidden = !elScienza.hidden;
+  if (!elScienza.hidden) {
+    disegnaCurvaApprendimento();
+    disegnaConvergenza();
+    aggiornaScienzaDati();
+  }
 });
 
 // Pulsante "prossimo puzzle".
