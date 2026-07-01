@@ -172,13 +172,63 @@ Il sistema **personale** è completo e funzionante end-to-end:
 - **Punto 4** ✅ (sostanza) — confronto prima/dopo: già coperto dalla Tappa D del punto 2 + grafico
   "📉 Evoluzione nel tempo" (tassi dei PERIODI, anti-diluizione; endpoint `/storico-profili`; stato
   vuoto finché <2 snapshot). Futuro: piano dinamico pieno.
-- **Punto 5** 🔶 AVVIATO — diagnosi **"non converti il vantaggio"** (`ml/converti_vantaggio.py`,
-  endpoint `/diagnosi-conversione`, blocco "🎯 Conversione del vantaggio"). Distingue crollo (già
-  coperto) da **erosione** (calo graduale senza errore singolo — il pattern nascosto). Filtri onesti
-  sui dati reali: **no bullet** + **tetto picco +2÷+6** → da 388 grezze a **56 erosioni vere**.
-  Solo consapevolezza (mostra le partite da rivedere), niente puzzle. Le diagnosi **posizionali**
-  restano il MURO, non fatte (da affrontare solo se fattibili senza grande sforzo).
+- **Punto 5** ✅ CHIUSO (verdetto dimostrato) — due tappe:
+  - **5a. Conversione del vantaggio** (`ml/converti_vantaggio.py`, endpoint `/diagnosi-conversione`,
+    blocco "🎯 Conversione del vantaggio"). Distingue crollo da **erosione** (calo graduale senza
+    errore singolo). Filtri onesti: **no bullet** + **tetto picco +2÷+6** → da 388 grezze a **56
+    erosioni vere**. Solo consapevolezza (partite da rivedere), niente puzzle.
+  - **5b. Diagnosi posizionali generali** — il MURO. Affrontato con due giri di SOLA MISURAZIONE
+    (`ml/analizza_posizionale.py`, `ml/analizza_aperture.py`), verificati a campione. ESITO: NON
+    diagnosticabili in pattern allenabili con euristiche semplici. Dettagli in 5g più sotto.
 - Dettagli in `docs/VISIONE_ESTESA.md` (punti 3/4/5).
+
+#### 5g. Diagnosi posizionali — MISURAZIONE e VERDETTO ✅ (il muro, dimostrato)
+- Errori posizionali puri = mia mossa cl≥200, non-bullet, best che NON cattura / NON dà scacco /
+  NON promuove / NON è tattica riconosciuta (riusa `ml/tattica.py`). Sola lettura, niente puzzle.
+- **Denominatore misurato**: 1352 errori posizionali puri = **32.1%** degli errori gravi non-bullet
+  (4214). [Più affidabile della stima ~75%×45% dell'handoff: lì mancavano i filtri scacco/promozione
+  e l'esclusione delle tattiche già etichettate.]
+- **Segnali VERI** (DATO): fase (apertura 46.4% / mediogioco 36.5% / finale 17.2%) e tipo di pezzo.
+- **Segnali BUTTATI** ([STIMA] smentite dai campioni): "re esposto" (marcava esposto il ~65% — non
+  discrimina; segnava esposto pure re in casa a mossa 7) e "natura della best" (43.9% in "altro",
+  guarda la geometria non l'idea). Stessa trappola di T3: numeri che fanno scena, vuoti.
+- **Secondo giro mirato all'apertura** (`analizza_aperture.py`, separato per colore, chiave-sequenza
+  + chiave-FEN4 con trasposizioni collassate): quota cumulativa top-5 fen4 BIANCO **18.8%** (sparso,
+  sotto soglia 25%), NERO **31.0%** ma trainato da un solo gruppo (`1.e4 e5 2.Nf3 Nc6`, 18.8%) che è
+  l'apertura più GIOCATA, non un buco di teoria. I campioni confermano: errori a mossa 9/12/13 dentro
+  lo stesso "gruppo d'apertura" → i gruppi condividono l'inizio, NON il pattern d'errore.
+- **VERDETTO**: il posizionale d'apertura e di mediogioco NON è scomponibile in diagnosi allenabili
+  con regole semplici. Coerente con la visione ("alcune non si fanno"). Un "no" dimostrato con
+  misurazione + verifica a campione, non un abbandono.
+- **Unica pista NON esclusa** (ipotesi, non verificata): tecnica di FINALE (17.2%, quasi tutto
+  torre+re). Posizioni-tipo con soluzione netta → in teoria compatibile col filtro-unicità del
+  punto 6. Da valutare semmai più avanti; oggi NON fatta. (Annotata nel docstring di
+  `analizza_posizionale.py`.)
+- Script tenuti e documentati con blocco ESITO in cima (commit a6e5f62), non cancellati: sono la
+  prova ricostruibile del "no".
+
+#### 5i. Tecnica di finale — DIAGNOSTICA e COSTRUITA end-to-end ✅ (15/06)
+- Il PRIMO "si'" del punto 5, dopo cinque "no". La tecnica di finale SI scompone per tipo.
+- Misurato (`ml/analizza_finali.py`, tasso non volume, bullet escluso, verificato a campione
+  col controllo-fase): finale_torre 3.4% (3443 mosse) = peggiore, finale_donna 0.9% (3020) =
+  migliore; rapporto 3.63x, estremi entrambi robusti. Donna basso = calcolo tattico già
+  allenato; torre alto = tecnica posizionale, il vero margine (coerente con tutto il punto 5).
+- COSTRUITO in pipeline (strada snella, NON script orfano):
+  - `ml/finali.py` (nuovo): conta_pezzi, classifica_finale (spostate da analizza_finali.py,
+    una sola versione), tassi_finali_per_tipo.
+  - `ml/profilo.py`: campo `finali_per_tipo` in costruisci_profilo (stesso ciclo di vita del
+    profilo, rispetta solo_file → eredita gratis l'anti-diluizione in futuro).
+  - `api/server.py`: sezione report `studio_fasi` (funzione _studio_fasi), SEPARATA dal piano
+    tattico, con denominatore dichiarato ("mosse in finale di quel tipo, diverso dal tattico").
+  - frontend: sezione "🎯 Studio per fasi di gioco — Finali" sotto il piano tattico, barre oneste,
+    peggiore evidenziato, pulsante "allenati su questo finale" che attiva Temi>finale_di_torre.
+- Il tema finale_di_torre→rookEndgame ESISTEVA GIA' in TEMI (server.py ~156); il DB ha 54k
+  puzzle rookEndgame alla fascia ~1000. Quindi diagnosi→azione quasi gratis: nessun generatore.
+- ⚠️ ASIMMETRIA BULLET VOLUTA: `studio_fasi` esclude il bullet (coerente con TUTTA la diagnostica
+  del progetto: nel bullet l'errore è il tempo, non la posizione). Il resto del profilo tattico
+  è invece bullet-inclusivo. NON è una svista: è la scelta che rende i tassi finali coerenti con
+  la diagnosi verificata (a bullet incluso il peggiore diventava finale_pedoni, falsato). Non
+  "correggere" allineando i due senza ripensarci.
 
 ### 6. Tassonomia temi più ricca ✅ FATTO
 - ~~Ora ci sono 8 temi nei pulsanti.~~ Ampliati a **24 temi**, raggruppati in 3 categorie

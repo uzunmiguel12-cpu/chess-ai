@@ -188,7 +188,7 @@ Endpoint `/storico-profili`. Tutto si popola man mano che si giocano e ricarican
 > Raffinamenti futuri (NON fatti): **piano dinamico pieno** (ricalibrare i PESI del piano sulle partite
 > recenti, non solo annotare la tendenza).
 
-### 5. Diagnosi profonde e contestuali 🔶 AVVIATO (1 diagnosi fatta; il resto è il muro)
+### 5. Diagnosi profonde e contestuali ✅ CHIUSO (1 diagnosi fatta + muro dimostrato)
 **Difficoltà: ALTA (il muro — alcune quasi-ricerca).** Va affrontato DIAGNOSI PER DIAGNOSI.
 - **"Non converte il vantaggio"** ✅ **FATTA** (diagnosi-consapevolezza, sola lettura, niente puzzle).
   `ml/converti_vantaggio.py` + endpoint `/diagnosi-conversione` + blocco "🎯 Conversione del vantaggio"
@@ -201,11 +201,25 @@ Endpoint `/storico-profili`. Tutto si popola man mano che si giocano e ricarican
   ogni filtro ha ridotto il numero ma aumentato la verità). La diagnosi MOSTRA il pattern e le partite
   da rivedere; NON genera puzzle (l'erosione è tecnica di conversione — semplificare, non rischiare,
   migliorare i pezzi — non una mossa-soluzione validabile). 29 test modulo + endpoint.
-- **"Sbaglia in posizioni chiuse/aperte"** ❌ NON FATTA — DIFFICILE (il muro vero). Richiede di
-  classificare la natura posizionale (struttura dei pedoni), concetto non geometrico.
+- **Diagnosi posizionali generali** ✅ **CHIUSO con verdetto dimostrato** — il muro vero. Affrontato
+  con due giri di SOLA MISURAZIONE (`ml/analizza_posizionale.py`, `ml/analizza_aperture.py`),
+  verificati a campione, NON con costruzione al buio. Misurato: gli errori posizionali puri sono il
+  **32.1%** degli errori gravi non-bullet; gli unici segnali veri sono fase e tipo di pezzo. Le
+  euristiche "re esposto" e "natura della best" si sono rivelate vuote (smentite dai campioni — stessa
+  trappola di T3) e **buttate onestamente**. Sull'unica pista forte (errori d'apertura) la quota
+  cumulativa è bassa (Bianco 18.8%) o gonfiata dalla frequenza di gioco (Nero: il gruppo grosso è
+  l'apertura più giocata, non un buco di teoria; errori sparsi a mossa 9/12/13). **VERDETTO**: il
+  posizionale d'apertura/mediogioco NON è scomponibile in diagnosi allenabili con regole semplici —
+  un "no" dimostrato, coerente col principio "se non si fa, dirlo". Dettagli in `docs/DA_FARE.md` (5g).
+- **Diagnosi COSTRUITE: due** (non più una). (1) "Non converti il vantaggio" — 56 erosioni vere,
+  solo consapevolezza. (2) **Tecnica di finale** ✅ (15/06): primo "sì" dopo cinque "no". I finali
+  di torre sono la debolezza tecnica più netta (3.4% vs 0.9% dei finali di donna, denominatori
+  robusti). Costruita end-to-end: misurata → pipeline (`ml/finali.py`, campo `finali_per_tipo`) →
+  report sezione "fasi di gioco" separata → pulsante che attiva il tema finale_di_torre (già
+  esistente, 54k puzzle in DB). Diagnosi → allenamento con un click. Dettagli in `docs/DA_FARE.md` (5i).
 - **"Combinazioni"** e altri concetti strategici: da valutare caso per caso.
-Meglio poche diagnosi VERE e oneste che tante superficiali. Le diagnosi posizionali restano aperte,
-da affrontare solo se fattibili senza grande sforzo (e, se non lo sono, dire onestamente "non si fa").
+Meglio poche diagnosi VERE e oneste che tante superficiali. Le diagnosi posizionali sono state provate
+sul serio e il muro regge dove previsto: il margine resta posizionale, ma non scomponibile coi puzzle.
 
 ---
 
@@ -371,11 +385,14 @@ I sei pezzi del coach (ordine 1 → 6 → 2 → 3 → 4 → 5):
 - **Punto 2** ✅ report carenze + tassi + piano di studio (pesi relativi) + snapshot anti-diluizione.
 - **Punto 3** ✅ (base) coaching visivo: freccia verde sulla soluzione + SAN leggibile.
 - **Punto 4** ✅ (sostanza) confronto prima/dopo: Tappa D + grafico evoluzione (delta, non cumulativi).
-- **Punto 5** 🔶 AVVIATO: diagnosi "non converti il vantaggio" fatta (56 erosioni vere, no bullet,
-  picco +2÷+6); le diagnosi posizionali restano il muro, aperte.
+- **Punto 5** ✅ CHIUSO: muro posizionale DIMOSTRATO (6 misurazioni: mediogioco + aperture +
+  5 feature tutte inerti) MA due diagnosi vere costruite ai bordi del muro — conversione del
+  vantaggio e tecnica di finale (finali di torre). Il margine è posizionale e diffuso, tranne
+  dove ha struttura riconoscibile (i tipi di finale): lì si allena.
 
 Raffinamenti futuri annotati (non urgenti): freccia rossa dell'errore (p.3), piano dinamico pieno
-(p.4), tasso-su-occasioni (p.2), diagnosi posizionali (p.5, il muro).
+(p.4), tasso-su-occasioni (p.2); diagnosi posizionali (p.5) chiuse con verdetto, salvo la pista
+finale (torre+re).
 
 **Miglioramenti R/C/T (sessione successiva):**
 - Gruppo R COMPLETO ✅ (R1 allargamento simmetrico pesca temi + messaggio veritiero; R2 era già
