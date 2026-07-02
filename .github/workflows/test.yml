@@ -30,8 +30,16 @@ jobs:                           # COSA eseguire
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4. Lancia i test dalla cartella engine
-      - name: Esegui i test
-        run: |
-          cd engine
-          pytest
+      # 4. Lancia i test di OGNI modulo, in cartelle separate (gli import sono "piatti":
+      #    ogni modulo va eseguito dalla sua cartella). Note sulla CI:
+      #    - engine: i test che richiedono Stockfish si SKIPPANO da soli (binario assente).
+      #    - ml/api/rag: nessun test richiede Stockfish (quelli che lo usano lo SIMULANO) ne'
+      #      dati reali (il profilo si carica in modo lazy alla prima richiesta, non all'import).
+      - name: Test engine
+        run: cd engine && pytest
+      - name: Test ml
+        run: cd ml && pytest
+      - name: Test api
+        run: cd api && pytest
+      - name: Test rag
+        run: cd rag && pytest
