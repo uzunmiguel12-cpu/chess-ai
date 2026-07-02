@@ -1150,15 +1150,22 @@ function renderStudioFasi(sf) {
   // c'e' un tema dedicato), riusando lo stesso meccanismo del piano tattico.
   const racc = sf.raccomandazione
     ? `<p class="fasi-raccomandazione">${sf.raccomandazione}</p>` : '';
-  const bottone = sf.tema_libero
-    ? `<button class="piano-allena fasi-allena" data-tema="${sf.tema_libero}">allenati su questo finale</button>`
-    : '';
+  // Un pulsante per OGNI tipo di finale allenabile (non solo il peggiore): torre,
+  // pedoni, minori, donna. finale_minori ne ha due (alfieri + cavalli). I tipi
+  // fragili (pochi dati) e il misto (nessun tema) non hanno pulsanti: i loro temi
+  // arrivano gia' vuoti dal backend.
+  const bottoni = sf.tassi
+    .flatMap((t) => (t.temi || []).map((tm) =>
+      `<button class="piano-allena fasi-allena" data-tema="${tm.it}">allena ${tm.label}</button>`))
+    .join(' ');
+  const bloccoBottoni = bottoni
+    ? `<div class="fasi-bottoni">${bottoni}</div>` : '';
 
   elCarenzeFasi.innerHTML =
     `<h3>🎯 Studio per fasi di gioco — Finali</h3>
      ${denom}
      <ul class="qualita-lista fasi-lista">${righe}</ul>
-     ${racc}${bottone}`;
+     ${racc}${bloccoBottoni}`;
 
   // Aggancio il pulsante al flusso temi (stesso meccanismo del piano tattico).
   elCarenzeFasi.querySelectorAll('.piano-allena').forEach((b) => {

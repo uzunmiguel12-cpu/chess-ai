@@ -1608,3 +1608,44 @@ def test_report_espone_studio_fasi():
     assert "piano_studio" in report          # non toccato
     assert "studio_fasi" in report
     assert report["studio_fasi"]["tipo_peggiore"] == "finale_torre"
+
+
+def _riga_fase(sf, tipo):
+    """Helper: la riga dei tassi per un dato tipo di finale."""
+    return next(r for r in sf["tassi"] if r["tipo"] == tipo)
+
+
+def test_studio_fasi_temi_per_tipo_allenabile():
+    """Ogni tipo NON fragile con un tema mappato espone i propri temi allenabili
+    (non solo il peggiore); il misto (nessun tema) e i fragili restano senza."""
+    sf = _studio_fasi(_profilo_finto_finali())
+    assert [t["it"] for t in _riga_fase(sf, "finale_torre")["temi"]] == ["finale_di_torre"]
+    assert [t["it"] for t in _riga_fase(sf, "finale_pedoni")["temi"]] == ["finale_di_pedoni"]
+    assert [t["it"] for t in _riga_fase(sf, "finale_donna")["temi"]] == ["finale_di_donna"]
+    assert _riga_fase(sf, "finale_misto")["temi"] == []    # nessun tema pulito
+    assert _riga_fase(sf, "finale_minori")["temi"] == []   # fragile nel profilo finto
+
+
+def test_studio_fasi_donna_allenabile_ma_non_e_debolezza():
+    """La donna e' allenabile su scelta dell'utente (ha i temi), ma NON viene
+    spacciata per debolezza: resta col suo tasso vero e non e' il tipo peggiore."""
+    sf = _studio_fasi(_profilo_finto_finali())
+    donna = _riga_fase(sf, "finale_donna")
+    assert donna["temi"]                 # ha un pulsante allenabile
+    assert donna["peggiore"] is False    # ma non e' la debolezza
+    assert sf["tipo_peggiore"] == "finale_torre"
+
+
+def test_studio_fasi_minori_rimanda_a_due_temi():
+    """finale_minori (non fragile) rimanda a ENTRAMBI i temi: alfieri e cavalli."""
+    per_tipo = {
+        "finale_torre": {"mosse": 100, "errori": 12, "tasso": 12.0, "fragile": False},
+        "finale_minori": {"mosse": 200, "errori": 8, "tasso": 4.0, "fragile": False},
+    }
+    profilo = {"finali_per_tipo": {
+        "per_tipo": per_tipo, "tipo_peggiore": "finale_torre",
+        "tasso_peggiore": 12.0, "tipo_migliore": "finale_minori", "min_mosse": 30,
+    }}
+    sf = _studio_fasi(profilo)
+    assert [t["it"] for t in _riga_fase(sf, "finale_minori")["temi"]] == [
+        "finale_di_alfieri", "finale_di_cavalli"]

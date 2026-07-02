@@ -1045,14 +1045,18 @@ def _piano_studio(profilo, tasso_su_mosse, ogni_quante_mosse, temi_rilevanti):
 
 
 # Mappa il TIPO di finale (classificazione di ml/finali.py: finale_torre/pedoni/
-# minori/donna/misto) al tema allenabile GIA' esistente in TEMI (vedi TEMI_CATEGORIE
-# "Finali"). Solo i tipi con un tema unico sono mappati; finale_minori (alfieri O
-# cavalli, ambiguo) e finale_misto NON hanno un tema dedicato -> raccomandazione
-# generica, senza inventare puzzle.
+# minori/donna/misto) ai temi puzzle GIA' esistenti in TEMI_CATEGORIE "Finali".
+# Ogni tipo -> LISTA di temi: finale_minori accorpa alfieri+cavalli, quindi rimanda a
+# ENTRAMBI i temi (Lichess li separa); gli altri hanno un tema unico. finale_misto NON
+# ha un tema pulito -> nessuna mappatura, niente puzzle inventati.
+# NB: la donna e' inclusa su scelta esplicita dell'utente pur essendo un suo PUNTO
+# FORTE (tasso basso): il report mostra comunque il suo tasso VERO, non la spaccia per
+# debolezza. Il pulsante c'e', ma i numeri restano onesti.
 FINALE_A_TEMA = {
-    "finale_torre": "finale_di_torre",
-    "finale_pedoni": "finale_di_pedoni",
-    "finale_donna": "finale_di_donna",
+    "finale_torre": ["finale_di_torre"],
+    "finale_pedoni": ["finale_di_pedoni"],
+    "finale_donna": ["finale_di_donna"],
+    "finale_minori": ["finale_di_alfieri", "finale_di_cavalli"],
 }
 
 
@@ -1089,14 +1093,23 @@ def _studio_fasi(profilo):
     for tipo, v in per_tipo.items():
         if v.get("mosse", 0) <= 0:
             continue
+        fragile = v.get("fragile", False)
+        # Temi allenabili di QUESTO tipo: solo se NON fragile (non offrire allenamento
+        # su un tipo con pochi dati) e se il tema esiste davvero in TEMI. Lista, perche'
+        # finale_minori rimanda a due temi (alfieri + cavalli).
+        temi_tipo = [] if fragile else [
+            {"it": it, "label": it.replace("_", " ")}
+            for it in FINALE_A_TEMA.get(tipo, []) if it in TEMI_DISPONIBILI
+        ]
         tassi.append({
             "tipo": tipo,
             "etichetta": etichetta(tipo),
             "mosse": v.get("mosse", 0),
             "errori": v.get("errori", 0),
             "tasso": v.get("tasso", 0.0),
-            "fragile": v.get("fragile", False),
+            "fragile": fragile,
             "peggiore": (tipo == tipo_peggiore),
+            "temi": temi_tipo,
         })
     # I NON fragili prima (per tasso decrescente), poi i fragili in coda: cosi' il
     # peggiore reale sta in testa e un tipo fragile con tasso alto ma poche mosse non
@@ -1105,10 +1118,12 @@ def _studio_fasi(profilo):
 
     disponibile = tipo_peggiore is not None
 
-    # Tema-libero del frontend, SOLO se il tipo peggiore ha un tema dedicato esistente
-    # (come piano_studio espone tema_libero per agganciarci i pulsanti del flusso temi).
-    tema_finale = FINALE_A_TEMA.get(tipo_peggiore)
-    tema_libero = tema_finale if tema_finale in TEMI_DISPONIBILI else None
+    # Tema-libero "di testa" per la raccomandazione del tipo PEGGIORE (retro-compat:
+    # resta un singolo tema, il primo di quel tipo). I pulsanti per TUTTI i tipi
+    # allenabili (donna/pedoni/minori inclusi) stanno invece in tassi[i]["temi"].
+    temi_peggiore = [t for t in FINALE_A_TEMA.get(tipo_peggiore, []) if t in TEMI_DISPONIBILI]
+    tema_finale = temi_peggiore[0] if temi_peggiore else None
+    tema_libero = tema_finale
 
     # RACCOMANDAZIONE onesta.
     if not disponibile:
