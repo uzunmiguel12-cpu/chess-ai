@@ -62,6 +62,7 @@ const elStato = document.getElementById('stato');
 const elBadgeOrigine = document.getElementById('badge-origine');
 const elProssimo = document.getElementById('prossimo');
 const elReplay = document.getElementById('replay-sequenza');  // #5: pulsante replay passo-passo
+const elDisclaimer = document.getElementById('disclaimer');    // #6: modale disclaimer una-tantum
 const elStats = document.getElementById('stats');
 const elTemi = document.getElementById('temi');
 const elFlussi = document.getElementById('flussi');
@@ -1648,6 +1649,23 @@ function avanzaReplay() {
     elInfo.innerHTML = `<span class="ko">${etichetta}: ${san}. Premi ▶ per la prossima.</span>`;
   }
 }
+
+// #6 - Disclaimer una-tantum: lo mostro solo alla PRIMA apertura (flag in localStorage).
+// Onesto: informa l'utente su quali statistiche il sistema usa e che la difficolta' si
+// adatta; NON pretende di proteggere l'algoritmo (la segretezza lato client e' debole).
+function mostraDisclaimerSeNuovo() {
+  if (!elDisclaimer) return;
+  try {
+    if (localStorage.getItem('disclaimer_visto')) return;  // gia' visto: non lo rimostro
+  } catch (e) { /* localStorage non disponibile: lo mostro comunque, e' innocuo */ }
+  elDisclaimer.hidden = false;
+  const ok = document.getElementById('disclaimer-ok');
+  if (ok) ok.addEventListener('click', () => {
+    elDisclaimer.hidden = true;
+    try { localStorage.setItem('disclaimer_visto', '1'); } catch (e) { /* ignoro */ }
+  });
+}
+mostraDisclaimerSeNuovo();
 
 // Avvio: carico i temi, lo stato dei flussi, le statistiche, l'estratto delle
 // carenze (pannello piano) e il primo puzzle.
