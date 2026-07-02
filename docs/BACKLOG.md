@@ -22,7 +22,7 @@
 
 ## Trasparenza / motore
 - [ ] Disclaimer alla prima partita (onesto, non manualistico) - T1
-- [ ] Reset della baseline degli snapshot dopo il fix classificazione
+- [x] Reset della baseline degli snapshot dopo il fix classificazione
 
 ## Diagnosi (punto 5)
 - [ ] Valutare la tecnica di finale torre+re come diagnosi allenabile
