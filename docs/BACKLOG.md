@@ -18,10 +18,10 @@
 - [x] Replay passo-passo delle sequenze multi-mossa (punto 3)
 - [ ] Piano dinamico pieno: ricalibrare i pesi sulle partite recenti (punto 4)
 - [ ] Tasso-su-occasioni come denominatore per tema (punto 2)
-- [ ] C1-Livello2: pesare la rotazione del Piano per priorita'
+- [x] C1-Livello2: pesare la rotazione del Piano per priorita'
 
 ## Trasparenza / motore
-- [ ] Disclaimer alla prima partita (onesto, non manualistico) - T1
+- [x] Disclaimer alla prima partita (onesto, non manualistico) - T1
 - [x] Reset della baseline degli snapshot dopo il fix classificazione
 
 ## Diagnosi (punto 5)
