@@ -14,8 +14,8 @@
 - [ ] Verifica server-side finale delle soluzioni (anti-cheat, multi-utente)
 
 ## Rifiniture dei pezzi del coach
-- [ ] Freccia rossa della mossa sbagliata accanto alla verde (coach visivo, punto 3)
-- [ ] Replay passo-passo delle sequenze multi-mossa (punto 3)
+- [x] Freccia rossa della mossa sbagliata accanto alla verde (coach visivo, punto 3)
+- [x] Replay passo-passo delle sequenze multi-mossa (punto 3)
 - [ ] Piano dinamico pieno: ricalibrare i pesi sulle partite recenti (punto 4)
 - [ ] Tasso-su-occasioni come denominatore per tema (punto 2)
 - [ ] C1-Livello2: pesare la rotazione del Piano per priorita'
