@@ -51,6 +51,9 @@ let esitoInviato = false;  // per non inviare due volte l'esito dello stesso puz
 let puzzleCorrente = null; // dati del puzzle dal server
 let ultimaMossa = null;    // [from, to] dell'ultima mossa, per evidenziarla
 let ultimaMossaSbagliata = null; // [from, to] dell'ultimo tentativo fallito, per la freccia rossa
+// #5 - replay passo-passo della combinazione corretta (solo puzzle multi-mossa).
+let replayMosse = [];      // mosse (UCI) della soluzione da ripercorrere una alla volta
+let replayIdx = 0;         // indice della prossima mossa da mostrare nel replay
 
 // Elementi della pagina.
 const elBoard = document.getElementById('board');
@@ -58,6 +61,7 @@ const elInfo = document.getElementById('info');
 const elStato = document.getElementById('stato');
 const elBadgeOrigine = document.getElementById('badge-origine');
 const elProssimo = document.getElementById('prossimo');
+const elReplay = document.getElementById('replay-sequenza');  // #5: pulsante replay passo-passo
 const elStats = document.getElementById('stats');
 const elTemi = document.getElementById('temi');
 const elFlussi = document.getElementById('flussi');
@@ -177,6 +181,8 @@ async function caricaProssimoPuzzle() {
   esitoInviato = false;
   ultimaMossa = null;  // azzero: non deve restare l'evidenziazione del puzzle precedente
   ultimaMossaSbagliata = null;  // azzero: la freccia rossa non deve passare al puzzle successivo
+  replayMosse = []; replayIdx = 0;        // #5: azzero il replay del puzzle precedente
+  if (elReplay) elReplay.hidden = true;   // nascondo il pulsante replay
   if (board) board.setShapes([]);  // pulisco eventuali frecce-soluzione del puzzle precedente
   if (elBadgeOrigine) elBadgeOrigine.hidden = true;
   try {
@@ -323,15 +329,13 @@ function onMossaGiocatore(orig, dest) {
     tentativi += 1;
     ultimaMossaSbagliata = [orig, dest]; // la mossa appena giocata (per la freccia rossa alla rivelazione)
     if (tentativi >= MAX_TENTATIVI) {
-      // Mostro la soluzione e fermo il puzzle. Mostro SOLO la prima mossa
-      // (soluzione[0]) anche per i puzzle multi-mossa: è chiaro e sufficiente.
+      // Mostro la soluzione e fermo il puzzle.
       const sol = soluzione[0];
       const san = uciToSan(sol);  // SAN leggibile (fallback su UCI grezzo).
-      elInfo.innerHTML = `<span class="ko">❌ La mossa giusta era ${san}. Guarda la freccia. Passa al prossimo.</span>`;
       aggiornaBoard();
-      // Disegno le frecce con il sistema nativo di chessground: la ROSSA dell'ultima
-      // mia mossa sbagliata (se c'è) e la VERDE della soluzione. La verde è spinta DOPO
-      // nell'array: se le due frecce si sovrappongono, la soluzione resta visibile sopra.
+      // Disegno le frecce native di chessground: la ROSSA dell'ultima mia mossa
+      // sbagliata (se c'è) e la VERDE della soluzione. La verde è spinta DOPO
+      // nell'array: se si sovrappongono, la soluzione resta visibile sopra.
       const [orig, dest] = uciCaselle(sol);
       const shapes = [];
       if (ultimaMossaSbagliata) {
@@ -340,6 +344,19 @@ function onMossaGiocatore(orig, dest) {
       shapes.push({ orig, dest, brush: 'green' });
       board.setShapes(shapes);
       board.set({ movable: { color: undefined } });
+      // #5: se la combinazione ha piu' mosse, preparo il replay passo-passo.
+      replayMosse = soluzione.slice();
+      replayIdx = 0;
+      if (replayMosse.length > 1) {
+        elInfo.innerHTML = `<span class="ko">❌ La mossa giusta era ${san}. È una combinazione: ripercorrila col pulsante ▶.</span>`;
+        if (elReplay) {
+          elReplay.hidden = false;
+          elReplay.disabled = false;
+          elReplay.textContent = '▶ Rivedi la sequenza';
+        }
+      } else {
+        elInfo.innerHTML = `<span class="ko">❌ La mossa giusta era ${san}. Guarda la freccia. Passa al prossimo.</span>`;
+      }
       if (!esitoInviato) {
         inviaEsito('fallito');
         esitoInviato = true;
@@ -388,6 +405,8 @@ function pulisciScacchiera() {
   puzzleCorrente = null;
   ultimaMossa = null;
   ultimaMossaSbagliata = null;
+  replayMosse = []; replayIdx = 0;        // #5: reset del replay passo-passo
+  if (elReplay) elReplay.hidden = true;
   if (board) {
     board.setShapes([]);  // via le frecce (verde soluzione + rossa errore)
     board.set({ lastMove: undefined, selected: undefined, movable: { color: undefined } });
@@ -1601,6 +1620,34 @@ elToggleScienza.addEventListener('click', () => {
 
 // Pulsante "prossimo puzzle".
 elProssimo.addEventListener('click', caricaProssimoPuzzle);
+
+// #5 - Replay passo-passo della combinazione corretta (pulsante ▶).
+if (elReplay) elReplay.addEventListener('click', avanzaReplay);
+
+// Avanza di una mossa nel replay: mostra la mossa in notazione, la applica sulla
+// scacchiera e ne disegna la freccia (verde = mia mossa, blu = risposta avversaria).
+// La scacchiera resta NON giocabile durante il replay (aggiornaBoard riabiliterebbe
+// le mosse, quindi la ri-blocco a ogni passo).
+function avanzaReplay() {
+  if (replayIdx >= replayMosse.length) return;
+  const uci = replayMosse[replayIdx];
+  const san = uciToSan(uci);            // SAN calcolato sulla posizione PRIMA della mossa
+  const [orig, dest] = uciCaselle(uci);
+  const mia = (replayIdx % 2 === 0);    // pari = mie mosse (0,2,...), dispari = risposta avversaria
+  chess.move(uciToMove(uci));
+  ultimaMossa = [orig, dest];
+  aggiornaBoard();
+  board.set({ movable: { color: undefined } });   // resta non giocabile durante il replay
+  board.setShapes([{ orig, dest, brush: mia ? 'green' : 'blue' }]);
+  replayIdx += 1;
+  const etichetta = mia ? 'La tua mossa' : 'Risposta avversaria';
+  if (replayIdx >= replayMosse.length) {
+    elInfo.innerHTML = `<span class="ko">${etichetta}: ${san}. Fine della combinazione — passa al prossimo.</span>`;
+    if (elReplay) elReplay.disabled = true;
+  } else {
+    elInfo.innerHTML = `<span class="ko">${etichetta}: ${san}. Premi ▶ per la prossima.</span>`;
+  }
+}
 
 // Avvio: carico i temi, lo stato dei flussi, le statistiche, l'estratto delle
 // carenze (pannello piano) e il primo puzzle.
