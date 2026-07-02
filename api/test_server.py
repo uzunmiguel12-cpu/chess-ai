@@ -1461,24 +1461,20 @@ def test_interlaccia_alterna_temi_bilanciati():
         assert a != b
 
 
-def test_interlaccia_ripete_tema_solo_quando_gli_altri_sono_finiti():
-    """
-    Caso reale (due blocchi pezzo_in_presa): un tema puo' ripetersi in due mini-blocchi
-    consecutivi SOLO quando nessun altro tema ha piu' mini-blocchi disponibili.
-    """
+def test_interlaccia_pesa_il_tema_dominante():
+    """Rotazione PESATA (#7): il tema con piu' mini-blocchi (priorita' piu' alta, perche' il
+    piano gli assegna piu' puzzle) compare PIU' spesso ED e' DISTRIBUITO - non ammassato in
+    fondo: appare sia nella prima meta' sia nella seconda della sequenza dei mini-blocchi."""
     blocchi = [
-        _blocco_finto("pezzo_in_presa", "mediogioco", 10, "a"),
-        _blocco_finto("pezzo_in_presa", "apertura", 10, "b"),  # stesso tema, due blocchi
-        _blocco_finto("forchetta", "apertura", 10, "c"),
+        _blocco_finto("pezzo_in_presa", "mediogioco", 20, "a"),  # 4 mini-blocchi (dominante)
+        _blocco_finto("forchetta", "apertura", 10, "b"),         # 2 mini-blocchi
     ]
     coda = _interlaccia_blocchi(blocchi, dimensione_mini=5)
     temi = _temi_consecutivi(coda, 5)
-    # Per ogni coppia consecutiva con lo stesso tema, gli altri temi devono essere gia'
-    # esauriti (cioe' non ricompaiono piu' nel resto della sequenza).
-    for i in range(len(temi) - 1):
-        if temi[i] == temi[i + 1]:
-            altri_dopo = {t for t in temi[i + 2:] if t != temi[i]}
-            assert not altri_dopo
+    meta = len(temi) // 2
+    assert "pezzo_in_presa" in temi[:meta]      # presente nella prima meta'
+    assert "pezzo_in_presa" in temi[meta:]      # e nella seconda (distribuito, non in coda)
+    assert temi.count("pezzo_in_presa") > temi.count("forchetta")  # e piu' spesso
 
 
 def test_interlaccia_conserva_lo_stesso_insieme_di_puzzle():

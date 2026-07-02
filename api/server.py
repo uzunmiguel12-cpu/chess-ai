@@ -394,15 +394,23 @@ def _interlaccia_blocchi(blocchi, dimensione_mini=DIMENSIONE_MINI_BLOCCO):
             motivo = mini[0].get("motivo_allenamento")
             mini_per_tema.setdefault(motivo, []).append(mini)
 
-    # 2. Round-robin tra i temi: a ogni giro servo un mini-blocco da ciascun tema che ne ha
-    #    ancora. Cosi' due mini-blocchi consecutivi hanno temi diversi finche' esistono altri
-    #    temi con mini-blocchi rimasti; alla fine, se resta un solo tema, scorre da solo.
+    # 2. Rotazione PESATA e liscia (#7 / C1-Livello2). Ogni tema ha tanti mini-blocchi quanti
+    #    gliene assegna il piano (proporzionali alla priorita': i temi peggiori ne hanno di
+    #    piu'). Per farli comparire PIU' SPESSO e in modo DISTRIBUITO (non ammassati in fondo),
+    #    do a ogni mini-blocco una "posizione ideale" (i+0.5)/n_tema in [0,1] e ordino tutti i
+    #    mini-blocchi per quella posizione: un tema con piu' mini-blocchi appare a intervalli
+    #    piu' fitti, uno con pochi appare piu' rado. A parita' di posizione vince il tema con
+    #    piu' mini-blocchi (priorita' alta), poi l'ordine di apparizione (gia' per frequenza).
+    #    Nessun puzzle perso/duplicato; l'ordine DENTRO ogni tema resta invariato.
+    programma = []  # (posizione_ideale, -n_mini, ordine_tema, mini_blocco)
+    for ordine, mini_blocchi in enumerate(mini_per_tema.values()):
+        n = len(mini_blocchi)
+        for i, mini in enumerate(mini_blocchi):
+            programma.append(((i + 0.5) / n, -n, ordine, mini))
+    programma.sort(key=lambda x: (x[0], x[1], x[2]))
     coda = []
-    code_temi = list(mini_per_tema.values())
-    while any(code_temi):
-        for mini_blocchi in code_temi:
-            if mini_blocchi:
-                coda.extend(mini_blocchi.pop(0))
+    for _, _, _, mini in programma:
+        coda.extend(mini)
     return coda
 
 

@@ -94,6 +94,17 @@ def test_blocchi_hanno_puzzle(ambiente):
         assert len(b["puzzle"]) == b["n_puzzle"]
 
 
+def test_blocchi_puzzle_proporzionali_alla_frequenza(ambiente):
+    """#7: il tema con piu' errori riceve PIU' puzzle di quello con meno errori."""
+    piano = costruisci_piano("Test", ambiente["db"],
+                             cartella_categorie=ambiente["categorie"],
+                             elo_min=1050, elo_max=1250, puzzle_per_blocco=10)
+    per_motivo = {b["motivo"]: b["n_puzzle"] for b in piano["blocchi"]}
+    # pezzo_in_presa: 8 errori (dominante) -> puzzle_per_blocco; forchetta: 5 -> meno.
+    assert per_motivo["pezzo_in_presa"] > per_motivo["forchetta"]
+    assert per_motivo["forchetta"] >= 5   # ma mai sotto il minimo
+
+
 def test_combinazioni_ordinamento():
     profilo_finto = {
         "tattico_per_fase": {

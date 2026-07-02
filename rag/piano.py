@@ -82,15 +82,22 @@ def costruisci_piano(nome, percorso_db, cartella_categorie=None,
     if not combinazioni:
         logger.warning("Nessuna debolezza tattica rilevata nel profilo")
 
-    # 3. Per ogni combinazione, un blocco di puzzle dal database.
+    # 3. Per ogni combinazione, un blocco di puzzle dal database. #7 (C1-Livello2): il
+    #    numero di puzzle e' PROPORZIONALE alla frequenza dell'errore (peso relativo =
+    #    conteggio / conteggio_dominante): il tema peggiore riceve puzzle_per_blocco, gli
+    #    altri di meno ma mai sotto MIN_PUZZLE_BLOCCO (restano blocchi utili). Cosi' ci si
+    #    allena DI PIU' dove si sbaglia di piu'. Il peso e' un dato dichiarato, non inventato.
+    conteggio_max = combinazioni[0][2] if combinazioni else 1
     blocchi = []
     for motivo, fase, conteggio in combinazioni:
         # saltiamo motivi/fasi non mappabili sui temi Lichess
         if motivo not in MOTIVO_LICHESS or fase not in FASE_LICHESS:
             continue
+        quanti = max(MIN_PUZZLE_BLOCCO,
+                     round(puzzle_per_blocco * conteggio / conteggio_max))
         puzzle = raccomanda(percorso_db, fase=fase, motivo=motivo,
                             elo_min=elo_min, elo_max=elo_max,
-                            quanti=puzzle_per_blocco)
+                            quanti=quanti)
         if len(puzzle) < MIN_PUZZLE_BLOCCO:
             logger.info("Blocco %s/%s saltato: solo %d puzzle disponibili",
                         motivo, fase, len(puzzle))
