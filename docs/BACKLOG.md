@@ -25,11 +25,11 @@
 - [x] Reset della baseline degli snapshot dopo il fix classificazione
 
 ## Diagnosi (punto 5)
-- [ ] Valutare la tecnica di finale torre+re come diagnosi allenabile
+- [x] Valutare la tecnica di finale torre+re come diagnosi allenabile
 
 ## Infrastruttura / qualita'
 - [x] Estendere la CI a ml/ api/ rag/ (oggi testa solo engine/)
-- [ ] Rimuovere gli .svg di esempio residui in frontend/src/assets
+- [x] Rimuovere gli .svg di esempio residui in frontend/src/assets
 
 ## Fase 5 - multi-utente (grande, futura)
 - [ ] Fase 5: sistema di account e login sicuro
