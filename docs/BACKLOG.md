@@ -28,7 +28,7 @@
 - [ ] Valutare la tecnica di finale torre+re come diagnosi allenabile
 
 ## Infrastruttura / qualita'
-- [ ] Estendere la CI a ml/ api/ rag/ (oggi testa solo engine/)
+- [x] Estendere la CI a ml/ api/ rag/ (oggi testa solo engine/)
 - [ ] Rimuovere gli .svg di esempio residui in frontend/src/assets
 
 ## Fase 5 - multi-utente (grande, futura)
