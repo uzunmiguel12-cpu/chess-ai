@@ -24,6 +24,33 @@ def _m(gravita, fase, tipo=None):
             "gravita": gravita, "fase": fase, "tipo_tattico": tipo}
 
 
+def test_occasioni_per_tipo_conta_tutte_le_mosse():
+    """#3: occasioni_per_tipo conta la tattica della BEST (occasione_tattica) su TUTTE le
+    mosse, non solo sugli errori; conteggio_tattico resta sui soli errori."""
+    cartella = tempfile.mkdtemp()
+    try:
+        def mo(gravita, occ):
+            return {"san": "x", "centipawn_loss": 0, "fen": POS_AP,
+                    "gravita": gravita, "fase": "mediogioco",
+                    "tipo_tattico": occ if gravita == "blunder" else None,
+                    "occasione_tattica": occ}
+        avv = mo("best", None)  # mossa avversaria (indici dispari): NON e' mia, non conta
+        # Bianco = indici pari: le MIE mosse sono le 0, 2, 4 (tutte forchetta).
+        mosse = [
+            mo("blunder", "forchetta"), avv,  # mia: occasione + errore
+            mo("best", "forchetta"), avv,     # mia: occasione trovata (non errore)
+            mo("best", "forchetta"), avv,     # mia: altra occasione trovata
+        ]
+        p = {"bianco": "Miguel", "nero": "Avv", "risultato": "1-0", "mosse": mosse}
+        with open(os.path.join(cartella, "g.json"), "w", encoding="utf-8") as f:
+            json.dump(p, f)
+        prof = costruisci_profilo("Miguel", cartella)
+        assert prof["occasioni_per_tipo"]["forchetta"] == 3   # tutte le mosse con occasione
+        assert prof["conteggio_tattico"]["forchetta"] == 1    # solo l'errore
+    finally:
+        shutil.rmtree(cartella)
+
+
 @pytest.fixture
 def cartella_tasso():
     """4 errori/20 mosse in apertura (20%), 3 errori/4 mosse in finale (75%)."""

@@ -143,6 +143,17 @@ def costruisci_profilo(nome, cartella=CARTELLA_CATEGORIE, solo_file=None):
         else:
             conteggio_tattico["non_tattico"] += 1
 
+    # #3 - OCCASIONI per tipo: quante volte quella tattica era la MOSSA MIGLIORE, su TUTTE
+    # le mosse (non solo gli errori). E' il DENOMINATORE del tasso-su-occasioni:
+    # errori_di_T / occasioni_di_T = "quando T era la mossa giusta, quanto spesso l'ho
+    # mancata". Gli errori di T sono un sottoinsieme delle occasioni di T, quindi il tasso
+    # e' un vero rapporto in [0, 1].
+    occasioni_per_tipo = Counter()
+    for m in tutte_mosse:
+        occ = m.get("occasione_tattica")
+        if occ in TIPI_TATTICI:
+            occasioni_per_tipo[occ] += 1
+
     # Percentuali sul totale degli errori gravi.
     percentuali_tattico = {}
     for tipo in list(TIPI_TATTICI) + ["non_tattico"]:
@@ -160,6 +171,7 @@ def costruisci_profilo(nome, cartella=CARTELLA_CATEGORIE, solo_file=None):
         "tasso_errore_per_fase": tasso_per_fase,
         "debolezza_principale": debolezza,
         "conteggio_tattico": dict(conteggio_tattico),
+        "occasioni_per_tipo": dict(occasioni_per_tipo),  # #3: denominatore tasso-su-occasioni
         "percentuali_tattico": percentuali_tattico,
         "tattico_per_fase": {t: dict(c) for t, c in tattico_per_fase.items()},
         # FASI DI GIOCO: tassi di errore posizionale per TIPO di finale, sulle mosse

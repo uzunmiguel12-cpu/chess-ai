@@ -31,7 +31,7 @@ from server import (
     _carica_puzzle_errori, _riempi_coda_errori,
     profilo_carenze, _arricchisci_profilo, storico_profili,
     diagnosi_conversione_endpoint,
-    _interlaccia_blocchi, _studio_fasi,
+    _interlaccia_blocchi, _studio_fasi, _tassi_su_occasioni,
 )
 
 
@@ -1645,3 +1645,18 @@ def test_studio_fasi_minori_rimanda_a_due_temi():
     sf = _studio_fasi(profilo)
     assert [t["it"] for t in _riga_fase(sf, "finale_minori")["temi"]] == [
         "finale_di_alfieri", "finale_di_cavalli"]
+
+
+# --- #3: tasso-su-occasioni -----------------------------------------------
+
+def test_tassi_su_occasioni():
+    """errori_di_T / occasioni_di_T; None dove non ci sono occasioni di quel tipo."""
+    profilo = {
+        "conteggio_tattico": {"forchetta": 2, "pezzo_in_presa": 3},
+        "occasioni_per_tipo": {"forchetta": 10, "pezzo_in_presa": 12},
+    }
+    tasso, occ = _tassi_su_occasioni(profilo)
+    assert tasso["forchetta"] == 20.0          # 2/10
+    assert tasso["pezzo_in_presa"] == 25.0     # 3/12
+    assert tasso["inchiodatura"] is None       # 0 occasioni -> None (non 0%)
+    assert occ["forchetta"] == 10

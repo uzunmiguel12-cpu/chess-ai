@@ -39,46 +39,45 @@ CARTELLA_CATEGORIE = os.path.join(
 GRAVITA_DA_ANALIZZARE = {"mistake", "blunder"}
 
 
-def _aggiungi_tipo_tattico(mossa):
+def _tattica_della_best(mossa):
     """
-    Se la mossa e' un errore vero, determina QUALE tattica si sarebbe dovuta
-    giocare: un errore e' una TATTICA MANCATA, quindi il tipo si calcola dalla
-    MOSSA MIGLIORE (best_move_uci), non dalla mossa giocata.
+    Restituisce la tattica della MOSSA MIGLIORE in questa posizione (o None). Ricostruisce
+    la posizione DOPO la best move partendo da fen (prima) + best_move_uci, col colore di
+    chi DOVEVA muovere (= io, board.turn della posizione di partenza), e chiede a
+    rileva_tipo_tattico quale pattern crea. Puro, niente Stockfish.
 
-    Ricostruisce la posizione DOPO la best move partendo da fen (prima) +
-    best_move_uci, mantenendo come colore_che_muove il colore di chi DOVEVA
-    giocare la best move (= io, board.turn della posizione di partenza), e guarda
-    quale pattern tattico avrebbe creato.
-
-    Casi limite -> tipo_tattico = None:
-    - best_move_uci mancante o vuoto;
-    - best_move_uci illegale nella posizione (try/except attorno a push);
-    - la best move non produce alcun pattern noto: e' un errore POSIZIONALE vero,
-      deve restare non_tattico (rileva_tipo_tattico restituisce None).
-
-    Modifica e restituisce la mossa.
+    None se: best_move_uci mancante/illegale, o se la best non crea alcun pattern noto
+    (errore POSIZIONALE vero / mossa tranquilla).
     """
-    if mossa.get("gravita") not in GRAVITA_DA_ANALIZZARE:
-        mossa["tipo_tattico"] = None
-        return mossa
-
     best_move_uci = mossa.get("best_move_uci")
     if not best_move_uci:
-        mossa["tipo_tattico"] = None
-        return mossa
-
+        return None
     try:
         board = chess.Board(mossa["fen"])
         colore_che_muove = board.turn  # chi DOVEVA giocare la best move = io
         fen_prima = mossa["fen"]
         board.push(chess.Move.from_uci(best_move_uci))
-        fen_dopo_best = board.fen()
-        mossa["tipo_tattico"] = rileva_tipo_tattico(
-            fen_prima, fen_dopo_best, colore_che_muove, best_move_uci
-        )
+        return rileva_tipo_tattico(fen_prima, board.fen(), colore_che_muove, best_move_uci)
     except Exception as e:
-        logger.warning("Tipo tattico non calcolabile per una mossa: %s", e)
-        mossa["tipo_tattico"] = None
+        logger.warning("Tattica della best non calcolabile per una mossa: %s", e)
+        return None
+
+
+def _aggiungi_tipo_tattico(mossa):
+    """
+    Aggiunge DUE campi, entrambi dalla tattica della MOSSA MIGLIORE (un errore e' una
+    tattica MANCATA):
+
+    - `occasione_tattica`: la tattica della best su OGNI mossa (#3). E' l'"occasione":
+      la posizione CHIEDEVA quella tattica, che io l'abbia trovata o no. E' il DENOMINATORE
+      del tasso-su-occasioni (errori-di-T / occasioni-di-T = "quando T era giusta, quanto
+      spesso l'ho mancata").
+    - `tipo_tattico`: la tattica mancata, definita SOLO sugli errori veri (retrocompat: il
+      profilo conta i tipi tattici sugli errori). Per un errore coincide con occasione_tattica.
+    """
+    occ = _tattica_della_best(mossa)
+    mossa["occasione_tattica"] = occ
+    mossa["tipo_tattico"] = occ if mossa.get("gravita") in GRAVITA_DA_ANALIZZARE else None
     return mossa
 
 

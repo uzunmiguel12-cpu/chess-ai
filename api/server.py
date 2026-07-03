@@ -892,6 +892,25 @@ def _tassi_su_mosse(profilo):
     return tasso, ogni
 
 
+def _tassi_su_occasioni(profilo):
+    """
+    #3 - Tasso-su-OCCASIONI per tipo tattico: errori-di-T / occasioni-di-T, cioe' "quando
+    quella tattica era la MOSSA GIUSTA, quanto spesso l'ho mancata". Denominatore diverso da
+    _tassi_su_mosse (mosse totali): risponde a una domanda diversa, per questo si mostrano
+    ENTRAMBI, con i denominatori dichiarati. Gli errori di T sono un sottoinsieme delle
+    occasioni di T -> il tasso e' un vero rapporto. None dove non ci sono occasioni di quel tipo.
+    Restituisce (tasso_per_tipo, occasioni_per_tipo).
+    """
+    conteggio_tattico = profilo.get("conteggio_tattico", {})
+    occasioni = profilo.get("occasioni_per_tipo", {})
+    tasso = {}
+    for tipo in TIPI_TATTICI:
+        occ = occasioni.get(tipo, 0)
+        err = conteggio_tattico.get(tipo, 0)
+        tasso[tipo] = round(100 * err / occ, 1) if occ else None
+    return tasso, dict(occasioni)
+
+
 def _fase_dominante_tipo(profilo, tipo):
     """Fase in cui un tipo tattico compare di piu' (da tattico_per_fase). None se
     quel tipo non ha occorrenze per fase."""
@@ -1177,6 +1196,9 @@ def _arricchisci_profilo(profilo, confronto=None):
     #    quante mosse commetti quel tipo di errore", NON "quante occasioni hai
     #    mancato". Aggiungiamo anche "una ogni ~N mosse" (mosse_totali / conteggio).
     tasso_su_mosse_per_tipo, ogni_quante_mosse_per_tipo = _tassi_su_mosse(profilo)
+    # #3 - tasso-su-OCCASIONI (denominatore = occasioni di quel tipo), mostrato ACCANTO al
+    #      precedente: risponde a "quando quella tattica era giusta, quanto spesso l'ho mancata".
+    tasso_su_occasioni_per_tipo, occasioni_per_tipo = _tassi_su_occasioni(profilo)
 
     # 2. RILEVANZA: un tema tattico conta solo se pesa >= SOGLIA_RILEVANZA % sugli
     #    errori gravi; sotto soglia e' rumore statistico e non va consigliato.
@@ -1231,6 +1253,11 @@ def _arricchisci_profilo(profilo, confronto=None):
         # Esplicito perche' il tasso NON inganni: il denominatore e' mosse_totali.
         "tasso_su_mosse_denominatore": "mosse_totali",
         "ogni_quante_mosse_per_tipo": ogni_quante_mosse_per_tipo,
+        # #3 - tasso-su-occasioni + il suo denominatore DICHIARATO (occasioni per tipo =
+        # mosse in cui quella tattica era la mossa migliore). Mostrato accanto, non al posto.
+        "tasso_su_occasioni_per_tipo": tasso_su_occasioni_per_tipo,
+        "occasioni_per_tipo": occasioni_per_tipo,
+        "tasso_su_occasioni_denominatore": "occasioni per tipo (mosse in cui quella tattica era la mossa migliore)",
         "temi_rilevanti": temi_rilevanti,
         "temi_non_rilevanti": temi_non_rilevanti,
         "soglia_rilevanza": SOGLIA_RILEVANZA,

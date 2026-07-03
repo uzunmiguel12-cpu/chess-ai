@@ -862,6 +862,8 @@ function renderCarenze(p) {
   const tassi = p.tasso_su_mosse_per_tipo || {};
   const ogni = p.ogni_quante_mosse_per_tipo || {};
   const conteggi = p.conteggio_tattico || {};
+  const tassiOcc = p.tasso_su_occasioni_per_tipo || {};  // #3: quando era la mossa giusta
+  const occN = p.occasioni_per_tipo || {};
   const rilevanti = new Set(p.temi_rilevanti || []);
   const tipi = Object.keys(tassi)
     .filter((t) => t !== 'non_tattico')
@@ -871,11 +873,16 @@ function renderCarenze(p) {
     const n = conteggi[t] || 0;
     const o = ogni[t];
     const quanto = o ? `una ogni ~${o} mosse` : 'mai osservato';
+    // #3: tasso-su-occasioni, se disponibile (quando quella tattica era la mossa giusta).
+    const to = tassiOcc[t];
+    const occasioni = (to != null)
+      ? ` · <strong>${to}% delle occasioni</strong> (${occN[t] || 0} volte era la mossa giusta)`
+      : '';
     const tag = nonRil
       ? '<span class="carenza-tag">non è un problema per te</span>' : '';
     return `<li class="carenza-item${nonRil ? ' non-rilevante' : ''}">
         <span class="carenza-nome">${etichettaCarenza(t)}</span>
-        <span class="carenza-num">${n} errori · ${tassi[t]}% delle mosse · ${quanto}</span>
+        <span class="carenza-num">${n} errori · ${tassi[t]}% delle mosse${occasioni} · ${quanto}</span>
         ${tag}
       </li>`;
   }).join('');
@@ -887,8 +894,13 @@ function renderCarenze(p) {
       <span class="carenza-num">${percNonTatt}% degli errori gravi · ${tassoNonTatt}% delle mosse</span>
       <span class="carenza-tag">non coperti dai puzzle tattici</span>
     </li>`;
+  // Nota onesta sui due denominatori: non confonderli.
+  const notaDenom = '<p class="carenza-nota-piccola">'
+    + '<strong>% delle mosse</strong> = su tutte le tue mosse; '
+    + '<strong>% delle occasioni</strong> = solo quando quella tattica era la mossa giusta '
+    + '(denominatore più vero: "quanto spesso l\'ho mancata").</p>';
   elCarenzeCome.innerHTML =
-    `<h3>Come sbagli</h3><ul class="carenza-lista">${righeCome}</ul>`;
+    `<h3>Come sbagli</h3><ul class="carenza-lista">${righeCome}</ul>${notaDenom}`;
 
   // 3. DOVE sbagli: le tre fasi, evidenziando la debolezza principale.
   const tassoFase = p.tasso_errore_per_fase || {};
