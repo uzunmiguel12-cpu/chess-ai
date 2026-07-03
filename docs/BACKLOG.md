@@ -16,7 +16,7 @@
 ## Rifiniture dei pezzi del coach
 - [x] Freccia rossa della mossa sbagliata accanto alla verde (coach visivo, punto 3)
 - [x] Replay passo-passo delle sequenze multi-mossa (punto 3)
-- [ ] Piano dinamico pieno: ricalibrare i pesi sulle partite recenti (punto 4)
+- [x] Piano dinamico pieno: ricalibrare i pesi sulle partite recenti (punto 4)
 - [x] Tasso-su-occasioni come denominatore per tema (punto 2)
 - [x] C1-Livello2: pesare la rotazione del Piano per priorita'
 
@@ -30,6 +30,15 @@
 ## Infrastruttura / qualita'
 - [x] Estendere la CI a ml/ api/ rag/ (oggi testa solo engine/)
 - [x] Rimuovere gli .svg di esempio residui in frontend/src/assets
+
+## Modulo Aperture (nuovo capitolo) - deciso: fonte = Lichess Explorer + ECO, LLM in v2
+- [ ] Aperture: dataset ECO (nomi <-> sequenze di mosse) scaricato e caricabile
+- [ ] Aperture: query al Lichess Opening Explorer per posizione, filtrata per fascia Elo (con cache locale)
+- [ ] Aperture: questionario iniziale (fascia Elo, obiettivo, minuti al giorno)
+- [ ] Aperture: motore di consiglio (da quali aperture partire; "semplicita'" = ramificazione dai dati Explorer)
+- [ ] Aperture: quarto flusso indipendente 'aperture' con studio passo-passo (linee reali + varianti + statistiche)
+- [ ] Aperture: puzzle d'apertura (prosegui dalla mossa N; risposta corretta = mossa da libro dell'Explorer alla fascia)
+- [ ] Aperture v2: coach LLM narratore VINCOLATO ai dati reali (mai mosse inventate); provider LLM da decidere
 
 ## Fase 5 - multi-utente (grande, futura)
 - [ ] Fase 5: sistema di account e login sicuro
