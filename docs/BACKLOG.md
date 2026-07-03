@@ -17,7 +17,7 @@
 - [x] Freccia rossa della mossa sbagliata accanto alla verde (coach visivo, punto 3)
 - [x] Replay passo-passo delle sequenze multi-mossa (punto 3)
 - [ ] Piano dinamico pieno: ricalibrare i pesi sulle partite recenti (punto 4)
-- [ ] Tasso-su-occasioni come denominatore per tema (punto 2)
+- [x] Tasso-su-occasioni come denominatore per tema (punto 2)
 - [x] C1-Livello2: pesare la rotazione del Piano per priorita'
 
 ## Trasparenza / motore
