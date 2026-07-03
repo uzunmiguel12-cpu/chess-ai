@@ -7,6 +7,7 @@ Esegui (dalla cartella rag):  pytest
 
 from aperture import (
     _parse_continuazioni, ramificazione, nome_apertura, _fascia_a_bucket, ECO_SAMPLE,
+    continuazioni_eco, ramificazione_eco, mossa_da_libro_eco,
 )
 
 # Risposta finta dell'Explorer nella forma reale (moves ordinate per frequenza).
@@ -64,3 +65,30 @@ def test_fascia_a_bucket():
 
 def test_sample_eco_non_vuoto():
     assert isinstance(ECO_SAMPLE, dict) and len(ECO_SAMPLE) > 0
+
+
+# Mini albero ECO per testare le continuazioni offline (deterministico).
+ECO_FIXTURE = {
+    "e2e4 e7e5": ("C20", "King's Pawn Game"),
+    "e2e4 e7e5 g1f3": ("C40", "King's Knight Opening"),
+    "e2e4 e7e5 g1f3 b8c6": ("C44", "Open Game"),
+    "e2e4 e7e5 g1f3 b8c6 f1c4": ("C50", "Italian Game"),
+    "e2e4 e7e5 g1f3 b8c6 f1b5": ("C60", "Ruy Lopez"),
+    "e2e4 e7e5 f1c4": ("C23", "Bishop's Opening"),
+}
+
+
+def test_continuazioni_eco_e_mossa_da_libro():
+    cont = continuazioni_eco(["e2e4", "e7e5"], ECO_FIXTURE)
+    # g1f3 attraversa 4 linee, f1c4 solo 1 -> g1f3 in testa
+    assert cont[0]["uci"] == "g1f3" and cont[0]["linee"] == 4
+    assert cont[0]["nome"] == "King's Knight Opening"   # P+g1f3 e' una linea nominata
+    assert cont[1]["uci"] == "f1c4" and cont[1]["linee"] == 1
+    assert ramificazione_eco(["e2e4", "e7e5"], ECO_FIXTURE) == 2
+    assert mossa_da_libro_eco(["e2e4", "e7e5"], ECO_FIXTURE) == "g1f3"
+
+
+def test_continuazioni_eco_posizione_foglia():
+    # una linea senza prosecuzioni note -> nessuna continuazione, niente mossa da libro
+    assert continuazioni_eco(["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"], ECO_FIXTURE) == []
+    assert mossa_da_libro_eco(["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"], ECO_FIXTURE) is None

@@ -118,6 +118,43 @@ def _eco_default():
     return _ECO_CACHE
 
 
+def continuazioni_eco(mosse_uci, eco_map=None):
+    """
+    [DATO offline] Continuazioni NOTE dall'albero ECO dopo `mosse_uci`: quali mosse proseguono
+    una linea ECO che passa da questa posizione. Per ciascuna: uci, quante linee ECO la
+    attraversano ('linee' = proxy di quanto e' battuta/sviluppata), ed eco/nome se P+mossa e'
+    esattamente una linea nominata. Ordinate per numero di linee (le piu' sviluppate prima).
+    Sostituisce il ruolo dell'Explorer (bloccato) per consigli, studio e puzzle d'apertura.
+    """
+    eco_map = eco_map if eco_map is not None else _eco_default()
+    p = list(mosse_uci)
+    n = len(p)
+    agg = {}
+    for chiave in eco_map:
+        mosse = chiave.split()
+        if len(mosse) > n and mosse[:n] == p:
+            nxt = mosse[n]
+            agg.setdefault(nxt, {"uci": nxt, "linee": 0, "eco": None, "nome": None})["linee"] += 1
+    for nxt, slot in agg.items():
+        esatta = " ".join(p + [nxt])
+        if esatta in eco_map:
+            slot["eco"], slot["nome"] = eco_map[esatta]
+    return sorted(agg.values(), key=lambda s: s["linee"], reverse=True)
+
+
+def ramificazione_eco(mosse_uci, eco_map=None):
+    """[DATO offline] Numero di continuazioni note nell'ECO = proxy ONESTO di complessita'
+    dell'apertura (poche continuazioni = piu' semplice da studiare). Per i consigli."""
+    return len(continuazioni_eco(mosse_uci, eco_map))
+
+
+def mossa_da_libro_eco(mosse_uci, eco_map=None):
+    """[DATO offline] La mossa 'da libro' senza Explorer: la continuazione ECO piu' sviluppata
+    (con piu' linee). E' la risposta corretta dei puzzle d'apertura. None se non ce ne sono."""
+    cont = continuazioni_eco(mosse_uci, eco_map)
+    return cont[0]["uci"] if cont else None
+
+
 def _parse_continuazioni(dati):
     """
     [DATO - PURO, testabile senza rete] Dalla risposta dell'Explorer estrae le continuazioni
@@ -216,15 +253,15 @@ if __name__ == "__main__":
     nome = nome_apertura(mosse)
     print(f"Mosse: {' '.join(mosse)}")
     print(f"Apertura (ECO): {nome or '(non trovata nel dataset)'}")
-    parsed = esplora(mosse, fascia_elo=elo)
-    if not parsed:
-        print("Explorer non disponibile (rete?).")
-        sys.exit(0)
-    if parsed["apertura"]:
-        print(f"Apertura (Explorer): {parsed['apertura']['eco']} {parsed['apertura']['nome']}")
-    print(f"Ramificazione (continuazioni comuni >=10%): {ramificazione(parsed)}")
-    print("Continuazioni piu' giocate:")
-    for c in parsed["continuazioni"][:6]:
-        print(f"  {c['san']:6} ({c['uci']})  {c['quota']*100:5.1f}%  bianco {c['punteggio_bianco']}%  "
-              f"[{c['giocate']} partite]")
+    cont = continuazioni_eco(mosse)
+    print(f"Ramificazione (continuazioni note nell'ECO): {len(cont)}")
+    if cont:
+        print("Continuazioni piu' sviluppate (n. di linee ECO che le attraversano):")
+        for c in cont[:8]:
+            etichetta = f"  -> {c['eco']} {c['nome']}" if c["nome"] else ""
+            print(f"  {c['uci']}  [{c['linee']} linee]{etichetta}")
+    else:
+        print("Nessuna continuazione nota nell'ECO (posizione foglia o fuori teoria).")
+    print()
+    print("(NB: l'Explorer live darebbe le frequenze reali per fascia Elo, ma e' bloccato dalla tua rete.)")
     print()
