@@ -5,7 +5,7 @@ complessita' finta (numero di mosse) per non dipendere dal dataset ECO reale.
 Esegui (dalla cartella rag):  pytest
 """
 
-from consiglio_aperture import consiglia, _livello_max, _nota_tempo, APERTURE_CURATE
+from consiglio_aperture import consiglia, _livello_target, _nota_tempo, APERTURE_CURATE
 
 
 def _compl_finta(mosse):
@@ -13,18 +13,29 @@ def _compl_finta(mosse):
 
 
 def test_livello_da_elo():
-    assert _livello_max(1000) == 1
-    assert _livello_max(1400) == 2
-    assert _livello_max(1800) == 3
-    assert _livello_max(None) == 1
+    assert _livello_target(1000) == 1
+    assert _livello_target(1400) == 2
+    assert _livello_target(1800) == 3
+    assert _livello_target(None) == 1
 
 
 def test_filtra_per_livello():
     r = consiglia(1000, "migliorare", 30, f_complessita=_compl_finta)
-    assert r["livello_max"] == 1
+    assert r["livello_target"] == 1
     assert r["consigli"] and all(c["livello"] == 1 for c in r["consigli"])
     r3 = consiglia(2000, "competere", 30, f_complessita=_compl_finta)
     assert any(c["livello"] == 3 for c in r3["consigli"])
+
+
+def test_rosa_cambia_con_la_fascia():
+    # Salendo di fascia la rosa deve CAMBIARE (livello adatto diverso), non solo crescere.
+    bassa = consiglia(1100, "migliorare", 30, f_complessita=_compl_finta)
+    media = consiglia(1500, "migliorare", 30, f_complessita=_compl_finta)
+    nomi_bassa = {c["nome"] for c in bassa["consigli"]}
+    nomi_media = {c["nome"] for c in media["consigli"]}
+    assert nomi_bassa != nomi_media
+    assert all(c["livello"] == 1 for c in bassa["consigli"])
+    assert all(c["livello"] == 2 for c in media["consigli"])
 
 
 def test_filtra_per_obiettivo():
@@ -37,10 +48,11 @@ def test_filtra_per_colore():
     assert r["consigli"] and all(c["colore"] == "bianco" for c in r["consigli"])
 
 
-def test_ordina_per_livello_poi_complessita():
+def test_ordina_per_vicinanza_al_livello_poi_complessita():
     r = consiglia(2000, None, 30, f_complessita=_compl_finta)
-    coppie = [(c["livello"], c["complessita"]) for c in r["consigli"]]
-    assert coppie == sorted(coppie)
+    target = r["livello_target"]
+    chiavi = [(abs(c["livello"] - target), c["complessita"]) for c in r["consigli"]]
+    assert chiavi == sorted(chiavi)
 
 
 def test_nota_tempo_qualitativa():

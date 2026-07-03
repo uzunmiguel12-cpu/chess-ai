@@ -63,19 +63,26 @@ APERTURE_CURATE = [
      "livello": 2, "obiettivi": {"migliorare"},
      "perche": "Solida contro 1.d4, tiene l'alfiere di donna attivo."},
     {"nome": "Siciliana", "colore": "nero", "mosse": "e2e4 c7c5",
-     "livello": 3, "obiettivi": {"competere"},
-     "perche": "La risposta piu' combattiva a 1.e4, ma tantissima teoria: meglio piu' avanti."},
+     "livello": 3, "obiettivi": {"migliorare", "competere"},
+     "perche": "La risposta piu' combattiva a 1.e4, ma tantissima teoria: da affrontare da esperti."},
     {"nome": "Est-Indiana (King's Indian)", "colore": "nero", "mosse": "d2d4 g8f6 c2c4 g7g6",
-     "livello": 3, "obiettivi": {"competere"},
+     "livello": 3, "obiettivi": {"migliorare", "competere"},
      "perche": "Dinamica e ricca di attacchi, ma impegnativa: da affrontare con esperienza."},
 ]
 
 
-def _livello_max(fascia_elo):
-    """Fascia Elo -> livello massimo di apertura consigliato (curato, dichiarato)."""
-    if fascia_elo is None or fascia_elo < 1200:
+def _livello_target(fascia_elo):
+    """Fascia Elo -> livello ADATTO (non 'massimo cumulativo'): le raccomandazioni si CENTRANO
+    su questo livello, cosi' CAMBIANO con la fascia invece di solo aumentare di numero.
+
+    Fasce Elo (definite da Miguel) mappate sui 3 livelli delle aperture curate:
+      500-1250   principiante (prime armi / base / avanzato) -> livello 1
+      1250-1750  intermedio (base / avanzato)                -> livello 2
+      1750+      avanzato                                     -> livello 3
+    """
+    if fascia_elo is None or fascia_elo < 1250:
         return 1
-    if fascia_elo < 1600:
+    if fascia_elo < 1750:
         return 2
     return 3
 
@@ -97,21 +104,26 @@ def consiglia(fascia_elo, obiettivo, minuti, colore="entrambi", f_complessita=No
     Motore di consiglio. `colore` in {"bianco","nero","entrambi"}. `f_complessita` e' iniettabile
     per i test (default: ramificazione_eco dai dati ECO reali).
 
-    RESTITUISCE {livello_max, consigli (ordinati: livello poi complessita' crescente),
+    RESTITUISCE {livello_target, consigli (ordinati: vicinanza al livello poi complessita'),
     nota_tempo, nota}. Ogni consiglio: nome, colore, livello, complessita', mosse, perche.
     """
     f_complessita = f_complessita or ramificazione_eco
-    lmax = _livello_max(fascia_elo)
+    target = _livello_target(fascia_elo)
 
-    def compatibile(a):
-        return (a["livello"] <= lmax
-                and colore in ("entrambi", a["colore"])
-                and (obiettivo is None or obiettivo in a["obiettivi"]))
+    def col_ok(a):
+        return colore in ("entrambi", a["colore"])
 
-    cand = [a for a in APERTURE_CURATE if compatibile(a)]
-    if not cand:  # l'obiettivo filtra troppo: rilasso all'obiettivo, tenendo livello/colore
-        cand = [a for a in APERTURE_CURATE
-                if a["livello"] <= lmax and colore in ("entrambi", a["colore"])]
+    def ob_ok(a):
+        return obiettivo is None or obiettivo in a["obiettivi"]
+
+    # Primario: aperture AL livello adatto. Se troppo poche, aggiungo il livello subito SOTTO
+    # (accessibili), MAI quelle sopra (troppo difficili). Cosi' la rosa CAMBIA con la fascia.
+    cand = [a for a in APERTURE_CURATE if a["livello"] == target and col_ok(a) and ob_ok(a)]
+    if len(cand) < 3:
+        cand += [a for a in APERTURE_CURATE
+                 if a["livello"] == target - 1 and col_ok(a) and ob_ok(a) and a not in cand]
+    if not cand:  # obiettivo troppo restrittivo: rilasso l'obiettivo (tengo livello<=target e colore)
+        cand = [a for a in APERTURE_CURATE if a["livello"] <= target and col_ok(a)]
 
     consigli = []
     for a in cand:
@@ -121,9 +133,10 @@ def consiglia(fascia_elo, obiettivo, minuti, colore="entrambi", f_complessita=No
             "complessita": f_complessita(a["mosse"].split()),
             "obiettivi": sorted(a["obiettivi"]),
         })
-    consigli.sort(key=lambda c: (c["livello"], c["complessita"]))
+    # Ordino: prima le piu' vicine al tuo livello, poi le piu' semplici.
+    consigli.sort(key=lambda c: (abs(c["livello"] - target), c["complessita"]))
     return {
-        "livello_max": lmax,
+        "livello_target": target,
         "consigli": consigli,
         "nota_tempo": _nota_tempo(minuti),
         "nota": ("Rosa CURATA di aperture solide, ordinata per complessita' (dati ECO reali) "
@@ -137,7 +150,7 @@ if __name__ == "__main__":
     obiettivo = sys.argv[2] if len(sys.argv) > 2 else "migliorare"
     minuti = int(sys.argv[3]) if len(sys.argv) > 3 else 30
     res = consiglia(elo, obiettivo, minuti)
-    print(f"\nElo {elo}, obiettivo '{obiettivo}', {minuti} min/giorno -> livello max {res['livello_max']}")
+    print(f"\nElo {elo}, obiettivo '{obiettivo}', {minuti} min/giorno -> livello adatto {res['livello_target']}")
     print(res["nota_tempo"])
     print("\nAperture consigliate (dalla piu' semplice):")
     for c in res["consigli"]:

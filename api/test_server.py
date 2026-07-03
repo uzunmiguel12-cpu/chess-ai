@@ -1775,5 +1775,5 @@ def test_aperture_esplora_posizione_iniziale():
 
 def test_aperture_consiglio_filtra_per_livello():
     r = aperture_consiglio(fascia_elo=1000, obiettivo="migliorare", minuti=30)
-    assert r["livello_max"] == 1
+    assert r["livello_target"] == 1
     assert r["consigli"] and all(c["livello"] == 1 for c in r["consigli"])
