@@ -1510,6 +1510,7 @@ class Esito(BaseModel):
     """Esito di un puzzle inviato dal frontend."""
     puzzle_id: str
     risultato: str  # "primo" | "secondo" | "fallito"
+    mosse_giocate: list[str] | None = None  # #10: le MIE mosse giocate, per la verifica server-side
 
 
 def _tema_di_puzzle(f, puzzle_id):
@@ -1539,22 +1540,60 @@ def _aggiorna_statistiche_tema(f, puzzle_id, risultato):
         st["risolti_primo"] += 1
 
 
+def _soluzione_attesa(f, puzzle_id):
+    """Le MIE mosse-soluzione (UCI) del puzzle nella coda del flusso `f`: le mosse dopo il
+    setup, prese a salti di 2 (le dispari sono le risposte avversarie, applicate in automatico).
+    None se il puzzle non e' nella coda (non verificabile)."""
+    for p in f["coda"]:
+        if p["id"] == puzzle_id:
+            parti = (p.get("moves") or "").split()
+            return parti[1:][::2]
+    return None
+
+
+def _verifica_soluzione(f, puzzle_id, mosse_giocate):
+    """#10 - Anti-cheat: True se le mosse giocate coincidono con la soluzione ATTESA (che il
+    server CONOSCE), False se no, None se non verificabile (puzzle non in coda). Confronto sui
+    primi 4 caratteri per gestire le promozioni (es. e7e8q vs e7e8)."""
+    attesa = _soluzione_attesa(f, puzzle_id)
+    if attesa is None:
+        return None
+    if not isinstance(mosse_giocate, list) or len(mosse_giocate) != len(attesa):
+        return False
+    return all((str(g) or "")[:4] == (str(a) or "")[:4]
+               for g, a in zip(mosse_giocate, attesa))
+
+
 @app.post("/esito")
 def registra_esito(esito: Esito):
     """Riceve l'esito di un puzzle e aggiorna le statistiche del FLUSSO ATTIVO."""
     f = _flusso()  # tutto si applica al flusso attivo, in modo indipendente
+
+    # #10 - VERIFICA SERVER-SIDE (anti-cheat): se il client dichiara "risolto" (primo/secondo),
+    # il server rivalida le mosse giocate contro la soluzione che CONOSCE. Se non combaciano,
+    # l'esito viene DECLASSATO a "fallito": il client non puo' auto-attribuirsi un successo.
+    # Solo qui, a puzzle completato, cosi' non rallenta le singole mosse (come da DA_FARE #3).
+    risultato = esito.risultato
+    verifica = None
+    if risultato in ("primo", "secondo") and esito.mosse_giocate is not None:
+        verifica = _verifica_soluzione(f, esito.puzzle_id, esito.mosse_giocate)
+        if verifica is False:
+            logger.warning("[%s] Verifica server-side FALLITA per %s: mosse non combaciano, "
+                           "declasso a 'fallito'.", _sessione["flusso_attivo"], esito.puzzle_id)
+            risultato = "fallito"
+
     f["tentati"] += 1
     f["blocco_conteggio"] += 1
-    if esito.risultato == "primo":
+    if risultato == "primo":
         f["risolti_primo"] += 1
         f["blocco_primo"] += 1
-    elif esito.risultato == "secondo":
+    elif risultato == "secondo":
         f["risolti_secondo"] += 1
     else:
         f["falliti"] += 1
 
     # Statistiche per tema (solo conteggi, indipendenti dall'adattivita').
-    _aggiorna_statistiche_tema(f, esito.puzzle_id, esito.risultato)
+    _aggiorna_statistiche_tema(f, esito.puzzle_id, risultato)
 
     # A fine blocco, valuta se adattare la difficolta' di QUESTO flusso.
     cambiamento_fascia = _valuta_adattivita(f)
@@ -1567,10 +1606,11 @@ def registra_esito(esito: Esito):
     successo = f["risolti_primo"]
     perc = round(100 * successo / f["tentati"], 1) if f["tentati"] else 0.0
     logger.info("[%s] Esito %s per %s. Successo al primo: %d/%d (%.1f%%)",
-                _sessione["flusso_attivo"], esito.risultato, esito.puzzle_id,
+                _sessione["flusso_attivo"], risultato, esito.puzzle_id,
                 successo, f["tentati"], perc)
     risposta = statistiche()
     risposta["fascia_cambiata"] = cambiamento_fascia
+    risposta["verifica_soluzione"] = verifica  # True/False/None (trasparenza anti-cheat)
     _salva_stato()  # persisto lo stato (tre flussi) dopo ogni esito
     return risposta
 

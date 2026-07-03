@@ -54,6 +54,7 @@ let ultimaMossaSbagliata = null; // [from, to] dell'ultimo tentativo fallito, pe
 // #5 - replay passo-passo della combinazione corretta (solo puzzle multi-mossa).
 let replayMosse = [];      // mosse (UCI) della soluzione da ripercorrere una alla volta
 let replayIdx = 0;         // indice della prossima mossa da mostrare nel replay
+let mosseGiocate = [];     // #10: le MIE mosse giocate nel puzzle, per la verifica server-side
 
 // Elementi della pagina.
 const elBoard = document.getElementById('board');
@@ -183,6 +184,7 @@ async function caricaProssimoPuzzle() {
   ultimaMossa = null;  // azzero: non deve restare l'evidenziazione del puzzle precedente
   ultimaMossaSbagliata = null;  // azzero: la freccia rossa non deve passare al puzzle successivo
   replayMosse = []; replayIdx = 0;        // #5: azzero il replay del puzzle precedente
+  mosseGiocate = [];                       // #10: azzero le mosse giocate
   if (elReplay) elReplay.hidden = true;   // nascondo il pulsante replay
   if (board) board.setShapes([]);  // pulisco eventuali frecce-soluzione del puzzle precedente
   if (elBadgeOrigine) elBadgeOrigine.hidden = true;
@@ -248,7 +250,7 @@ async function inviaEsito(risultato) {
     const risposta = await fetch(`${BACKEND}/esito`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ puzzle_id: puzzleCorrente.id, risultato }),
+      body: JSON.stringify({ puzzle_id: puzzleCorrente.id, risultato, mosse_giocate: mosseGiocate }),
     });
     const stats = await risposta.json();
     mostraStatistiche(stats);
@@ -301,6 +303,7 @@ function onMossaGiocatore(orig, dest) {
     // Mossa corretta: la applico davvero.
     chess.move(uciToMove(attesa));
     ultimaMossa = uciCaselle(attesa);
+    mosseGiocate.push(mossaUci);  // #10: registro la mia mossa per la verifica server-side
     soluzione.shift();
 
     if (soluzione.length === 0) {
@@ -407,6 +410,7 @@ function pulisciScacchiera() {
   ultimaMossa = null;
   ultimaMossaSbagliata = null;
   replayMosse = []; replayIdx = 0;        // #5: reset del replay passo-passo
+  mosseGiocate = [];                       // #10: reset delle mosse giocate
   if (elReplay) elReplay.hidden = true;
   if (board) {
     board.setShapes([]);  // via le frecce (verde soluzione + rossa errore)

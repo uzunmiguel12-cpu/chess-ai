@@ -32,6 +32,7 @@ from server import (
     profilo_carenze, _arricchisci_profilo, storico_profili,
     diagnosi_conversione_endpoint,
     _interlaccia_blocchi, _studio_fasi, _tassi_su_occasioni,
+    _verifica_soluzione, _flusso,
 )
 
 
@@ -1710,3 +1711,48 @@ def test_tassi_su_occasioni():
     assert tasso["pezzo_in_presa"] == 25.0     # 3/12
     assert tasso["inchiodatura"] is None       # 0 occasioni -> None (non 0%)
     assert occ["forchetta"] == 10
+
+
+# --- #10: verifica server-side delle soluzioni (anti-cheat) ----------------
+
+def _coda_con_puzzle():
+    """Prepara il flusso attivo con un puzzle multi-mossa: moves = setup + soluzione,
+    le MIE mosse sono g8f6 e e7e6 (le dispari sono risposte avversarie)."""
+    _stato_pulito()
+    f = _flusso()
+    f["coda"] = [{"id": "p1", "moves": "d2d4 g8f6 c2c4 e7e6",
+                  "motivo_allenamento": "forchetta"}]
+    return f
+
+
+def test_verifica_soluzione():
+    f = _coda_con_puzzle()
+    assert _verifica_soluzione(f, "p1", ["g8f6", "e7e6"]) is True    # corrette
+    assert _verifica_soluzione(f, "p1", ["g8f6", "h7h5"]) is False   # 2a sbagliata
+    assert _verifica_soluzione(f, "p1", ["g8f6"]) is False           # incompleta
+    assert _verifica_soluzione(f, "id_inesistente", ["g8f6"]) is None  # non verificabile
+
+
+def test_esito_declassa_se_verifica_fallita():
+    """Dichiaro 'primo' ma con mosse sbagliate -> il server declassa a 'fallito'."""
+    f = _coda_con_puzzle()
+    registra_esito(Esito(puzzle_id="p1", risultato="primo",
+                         mosse_giocate=["g8f6", "h7h5"]))
+    assert f["risolti_primo"] == 0
+    assert f["falliti"] == 1
+
+
+def test_esito_accetta_se_verifica_ok():
+    """Mosse giuste -> il 'primo' viene accettato."""
+    f = _coda_con_puzzle()
+    registra_esito(Esito(puzzle_id="p1", risultato="primo",
+                         mosse_giocate=["g8f6", "e7e6"]))
+    assert f["risolti_primo"] == 1
+    assert f["falliti"] == 0
+
+
+def test_esito_senza_mosse_non_verifica():
+    """Retrocompat: senza mosse_giocate non si verifica (accettato come prima)."""
+    f = _coda_con_puzzle()
+    registra_esito(Esito(puzzle_id="p1", risultato="primo"))
+    assert f["risolti_primo"] == 1
