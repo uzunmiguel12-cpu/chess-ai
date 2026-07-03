@@ -100,6 +100,60 @@
 
     <button id="toggle-carenze">🩺 Le mie carenze</button>
     <button id="toggle-scienza">🔬 La scienza dietro il sistema</button>
+    <button id="toggle-studio">♟ Studio aperture</button>
+
+    <!-- MODULO APERTURE: sezione a se' (non un flusso di puzzle). Questionario -> rosa
+         consigliata; poi studio passo-passo di una linea su scacchiera DEDICATA. -->
+    <section id="studio-aperture" hidden>
+      <h2>Studio aperture</h2>
+      <p class="studio-nota">Consigli su da quali aperture partire (rosa <strong>curata</strong>,
+        ordinata per complessità dai dati ECO reali) e studio passo-passo delle linee.
+        Nessuna teoria inventata: nomi e mosse vengono dai dati.</p>
+
+      <div class="studio-questionario">
+        <label>Fascia Elo
+          <select id="ap-elo">
+            <option value="625">Principiante alle prime armi (500-750)</option>
+            <option value="875">Principiante base (750-1000)</option>
+            <option value="1125" selected>Principiante avanzato (1000-1250)</option>
+            <option value="1375">Intermedio base (1250-1500)</option>
+            <option value="1625">Intermedio avanzato (1500-1750)</option>
+            <option value="1875">Avanzato (1750-2000)</option>
+            <option value="2100">Avanzato+ (2000+)</option>
+          </select>
+        </label>
+        <label>Obiettivo
+          <select id="ap-obiettivo">
+            <option value="divertimento">Divertimento</option>
+            <option value="migliorare" selected>Migliorare</option>
+            <option value="competere">Competere</option>
+          </select>
+        </label>
+        <label>Minuti/giorno <input id="ap-minuti" type="number" value="30" min="5" max="240"></label>
+        <label>Colore
+          <select id="ap-colore">
+            <option value="entrambi" selected>Entrambi</option>
+            <option value="bianco">Bianco</option>
+            <option value="nero">Nero</option>
+          </select>
+        </label>
+        <button id="ap-consiglia">Consigliami le aperture</button>
+      </div>
+      <div id="ap-consigli"></div>
+
+      <!-- Studio della linea scelta (scacchiera dedicata, si naviga coi pulsanti). -->
+      <div id="ap-studio" hidden>
+        <h3 id="ap-titolo"></h3>
+        <div id="ap-board"></div>
+        <div id="ap-info"></div>
+        <div id="ap-continuazioni"></div>
+        <div class="ap-controlli">
+          <button id="ap-indietro">◀ Indietro</button>
+          <button id="ap-avanti">▶ Mossa da libro</button>
+          <button id="ap-reset">↺ Ricomincia l'apertura</button>
+        </div>
+      </div>
+    </section>
 
     <!-- Sezione "Le mie carenze": REPORT DELLE CARENZE (punto 2 della visione).
          Diagnosi onesta dal profilo (GET /profilo), separata dai flussi di gioco. -->
