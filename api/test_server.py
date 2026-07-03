@@ -33,6 +33,7 @@ from server import (
     diagnosi_conversione_endpoint,
     _interlaccia_blocchi, _studio_fasi, _tassi_su_occasioni,
     _verifica_soluzione, _flusso,
+    aperture_consiglio, aperture_esplora,
 )
 
 
@@ -1756,3 +1757,23 @@ def test_esito_senza_mosse_non_verifica():
     f = _coda_con_puzzle()
     registra_esito(Esito(puzzle_id="p1", risultato="primo"))
     assert f["risolti_primo"] == 1
+
+
+# --- MODULO APERTURE: endpoint del flusso di studio -----------------------
+
+def test_aperture_esplora_nome_e_continuazioni():
+    r = aperture_esplora("e2e4,e7e5")
+    assert r["apertura"]["eco"] == "C20"            # King's Pawn Game (sample o dataset reale)
+    assert r["continuazioni"][0]["uci"] == "g1f3"   # la continuazione piu' sviluppata
+    assert r["mossa_da_libro"] == "g1f3"
+
+
+def test_aperture_esplora_posizione_iniziale():
+    r = aperture_esplora("")
+    assert r["mosse"] == [] and r["apertura"] is None
+
+
+def test_aperture_consiglio_filtra_per_livello():
+    r = aperture_consiglio(fascia_elo=1000, obiettivo="migliorare", minuti=30)
+    assert r["livello_max"] == 1
+    assert r["consigli"] and all(c["livello"] == 1 for c in r["consigli"])

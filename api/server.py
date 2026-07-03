@@ -52,6 +52,8 @@ for p in (_RAG, _ML):
 from piano import costruisci_piano  # noqa: E402
 from profilo import costruisci_profilo, TIPI_TATTICI, FASI  # noqa: E402
 from converti_vantaggio import diagnosi_conversione  # noqa: E402
+from aperture import nome_apertura, continuazioni_eco  # noqa: E402 (modulo Aperture)
+from consiglio_aperture import consiglia  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1887,6 +1889,35 @@ def stato():
         "puzzle_totali": len(f["coda"]),
         "puzzle_serviti": f["serviti"],
         "rimanenti": len(f["coda"]) - f["serviti"],
+    }
+
+
+# --- MODULO APERTURE: endpoint del flusso di studio (read-only, offline) ----------
+# Espongono i dati ECO reali (rag/aperture.py) e la rosa curata (rag/consiglio_aperture.py)
+# al frontend. Nessuno stato/adattivita': lo studio delle aperture e' un flusso a se'.
+
+@app.get("/aperture/consiglio")
+def aperture_consiglio(fascia_elo: int = 1000, obiettivo: str = "migliorare",
+                       minuti: int = 30, colore: str = "entrambi"):
+    """Rosa curata di aperture consigliate in base al questionario (Elo/obiettivo/minuti/colore)."""
+    return consiglia(fascia_elo, obiettivo, minuti, colore=colore)
+
+
+@app.get("/aperture/esplora")
+def aperture_esplora(mosse: str = ""):
+    """
+    Per la posizione dopo `mosse` (UCI separate da virgola, es. 'e2e4,e7e5'): nome ECO
+    dell'apertura raggiunta, continuazioni note (dall'albero ECO) e la mossa 'da libro'
+    (la piu' sviluppata). Serve al flusso di studio passo-passo e ai puzzle d'apertura.
+    """
+    seq = [m for m in mosse.split(",") if m]
+    nome = nome_apertura(seq)
+    cont = continuazioni_eco(seq)
+    return {
+        "mosse": seq,
+        "apertura": ({"eco": nome[0], "nome": nome[1]} if nome else None),
+        "continuazioni": cont,
+        "mossa_da_libro": (cont[0]["uci"] if cont else None),
     }
 
 
