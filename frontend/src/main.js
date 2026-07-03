@@ -1126,11 +1126,19 @@ function renderPianoStudio(piano, confronto) {
     ? `<p class="piano-progressione">${piano.progressione}</p>` : '';
   const nota = piano.nota_posizionale
     ? `<p class="piano-nota">${piano.nota_posizionale}</p>` : '';
+  // #9 - se il piano e' stato ricalibrato sui recenti (confronto affidabile), lo dico
+  // in chiaro: i pesi riflettono il livello di ADESSO, non la media cumulativa.
+  const ricalibrato = piano.ricalibrato_recente
+    ? `<p class="piano-ricalibrato">📊 Piano <strong>ricalibrato sulle tue ultime `
+      + `${piano.partite_recenti} partite</strong>: i pesi riflettono il tuo livello di `
+      + `adesso, non la media di sempre.</p>`
+    : '';
 
   elCarenzePiano.innerHTML =
     `<h3>📋 Il tuo piano di studio</h3>
      <p class="piano-intro">In base a dove sbagli più spesso, ecco su quali temi
        liberi concentrarti.</p>
+     ${ricalibrato}
      <ol class="piano-lista">${righe}</ol>
      ${progressione}${nota}`;
 

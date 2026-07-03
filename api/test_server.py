@@ -1647,6 +1647,56 @@ def test_studio_fasi_minori_rimanda_a_due_temi():
         "finale_di_alfieri", "finale_di_cavalli"]
 
 
+# --- #9: piano dinamico (ricalibrato sui recenti se affidabile) -----------
+
+def test_piano_ricalibrato_su_recenti_quando_affidabile():
+    """#9 (opzione A): con confronto AFFIDABILE, il piano ripesa sui tassi RECENTI, non
+    sui cumulativi. Qui la pezzo_in_presa (dominante nel cumulativo) e' MIGLIORATA di
+    recente, la forchetta no -> nel piano recente la forchetta diventa la voce in testa."""
+    profilo = {
+        "mosse_totali": 1000,
+        "conteggio_tattico": {"pezzo_in_presa": 100, "forchetta": 50},
+        "occasioni_per_tipo": {},
+        "percentuali_tattico": {"pezzo_in_presa": 40.0, "forchetta": 20.0},
+        "tasso_errore_per_fase": {"apertura": 0.0, "mediogioco": 0.0, "finale": 0.0},
+        "mosse_per_fase": {"apertura": 400, "mediogioco": 400, "finale": 200},
+        "tattico_per_fase": {},
+        "finali_per_tipo": {},
+    }
+    confronto = {
+        "affidabile": True,
+        "partite_nuove": 80,
+        "voci": [
+            {"tema": "pezzo_in_presa", "tasso_recente": 2.0, "tendenza": "migliorato"},
+            {"tema": "forchetta", "tasso_recente": 6.0, "tendenza": "peggiorato"},
+        ],
+    }
+    report = _arricchisci_profilo(profilo, confronto=confronto)
+    piano = report["piano_studio"]
+    assert piano["ricalibrato_recente"] is True
+    assert piano["partite_recenti"] == 80
+    assert piano["voci"][0]["tema"] == "forchetta"   # sui recenti 6% > 2%
+
+
+def test_piano_non_ricalibrato_se_confronto_inaffidabile():
+    """Sotto la guardia (o senza confronto) il piano resta cumulativo (nessun peso su
+    pochi dati): la pezzo_in_presa resta dominante come nel cumulativo."""
+    profilo = {
+        "mosse_totali": 1000,
+        "conteggio_tattico": {"pezzo_in_presa": 100, "forchetta": 50},
+        "occasioni_per_tipo": {},
+        "percentuali_tattico": {"pezzo_in_presa": 40.0, "forchetta": 20.0},
+        "tasso_errore_per_fase": {"apertura": 0.0, "mediogioco": 0.0, "finale": 0.0},
+        "mosse_per_fase": {"apertura": 400, "mediogioco": 400, "finale": 200},
+        "tattico_per_fase": {},
+        "finali_per_tipo": {},
+    }
+    report = _arricchisci_profilo(profilo, confronto=None)
+    piano = report["piano_studio"]
+    assert piano["ricalibrato_recente"] is False
+    assert piano["voci"][0]["tema"] == "pezzo_in_presa"  # cumulativo: 10% > 5%
+
+
 # --- #3: tasso-su-occasioni -----------------------------------------------
 
 def test_tassi_su_occasioni():

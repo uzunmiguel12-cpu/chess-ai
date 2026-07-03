@@ -1231,8 +1231,24 @@ def _arricchisci_profilo(profilo, confronto=None):
                                temi_rilevanti, temi_non_rilevanti)
 
     # 5. PIANO DI STUDIO (Tappa C): la parte azionabile, dai soli temi rilevanti.
-    piano_studio = _piano_studio(profilo, tasso_su_mosse_per_tipo,
+    #    #9 - PIANO DINAMICO (opzione A): se il confronto Tappa D e' AFFIDABILE (>=
+    #    GUARDRAIL_PARTITE partite nuove), ripeso il piano sui tassi RECENTI (il tuo livello
+    #    di ADESSO), non sui cumulativi che diluiscono il miglioramento. Sotto la guardia
+    #    resto cumulativo (niente pesi su pochi dati rumorosi): nessun parametro arbitrario,
+    #    solo la guardia sul rumore che gia' esiste.
+    ricalibrato = bool(confronto and confronto.get("affidabile"))
+    if ricalibrato:
+        tasso_per_piano = dict(tasso_su_mosse_per_tipo)  # base cumulativa
+        for v in confronto.get("voci", []):
+            if "tema" in v and v["tema"] in tasso_per_piano:
+                tasso_per_piano[v["tema"]] = v.get("tasso_recente", tasso_per_piano[v["tema"]])
+    else:
+        tasso_per_piano = tasso_su_mosse_per_tipo
+    piano_studio = _piano_studio(profilo, tasso_per_piano,
                                  ogni_quante_mosse_per_tipo, temi_rilevanti)
+    piano_studio["ricalibrato_recente"] = ricalibrato
+    if ricalibrato:
+        piano_studio["partite_recenti"] = confronto.get("partite_nuove")
 
     # 5-bis. FASI DI GIOCO: sezione separata col SUO denominatore (mosse in finale),
     #        indipendente dal piano tattico (che usa le mosse totali).
