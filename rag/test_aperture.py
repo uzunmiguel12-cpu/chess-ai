@@ -8,6 +8,7 @@ Esegui (dalla cartella rag):  pytest
 from aperture import (
     _parse_continuazioni, ramificazione, nome_apertura, _fascia_a_bucket, ECO_SAMPLE,
     continuazioni_eco, ramificazione_eco, mossa_da_libro_eco,
+    linea_principale_eco, puzzle_apertura, verifica_puzzle,
 )
 
 # Risposta finta dell'Explorer nella forma reale (moves ordinate per frequenza).
@@ -92,3 +93,35 @@ def test_continuazioni_eco_posizione_foglia():
     # una linea senza prosecuzioni note -> nessuna continuazione, niente mossa da libro
     assert continuazioni_eco(["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"], ECO_FIXTURE) == []
     assert mossa_da_libro_eco(["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"], ECO_FIXTURE) is None
+
+
+def test_linea_principale_eco_segue_la_mossa_da_libro():
+    punti, linea = linea_principale_eco(["e2e4", "e7e5"], eco_map=ECO_FIXTURE)
+    assert [m for _, m in punti] == ["g1f3", "b8c6", "f1c4"]
+    assert linea == ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4"]
+
+
+def test_puzzle_apertura_default_e_indice():
+    pz = puzzle_apertura(["e2e4", "e7e5"], eco_map=ECO_FIXTURE)
+    assert pz["indice"] == 2 and pz["totale"] == 3           # default = il piu' profondo
+    assert pz["setup"] == ["e2e4", "e7e5", "g1f3", "b8c6"]
+    assert pz["numero_mossa"] == 3 and pz["lato"] == "bianco"
+    assert "corretta" not in pz and "attesa" not in pz        # la risposta NON trapela
+    pz0 = puzzle_apertura(["e2e4", "e7e5"], indice=0, eco_map=ECO_FIXTURE)
+    assert pz0["setup"] == ["e2e4", "e7e5"] and pz0["lato"] == "bianco"
+
+
+def test_puzzle_apertura_indice_si_clampa():
+    assert puzzle_apertura(["e2e4", "e7e5"], indice=99, eco_map=ECO_FIXTURE)["indice"] == 2
+
+
+def test_puzzle_apertura_foglia_nessun_puzzle():
+    assert puzzle_apertura(["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"], eco_map=ECO_FIXTURE) is None
+
+
+def test_verifica_puzzle_principale_giusta_e_sbagliata():
+    ok = verifica_puzzle(["e2e4", "e7e5", "g1f3", "b8c6"], "f1c4", ECO_FIXTURE)
+    assert ok["corretto"] is True and ok["attesa"] == "f1c4"
+    assert ok["apertura_dopo"]["nome"] == "Italian Game"
+    no = verifica_puzzle(["e2e4", "e7e5", "g1f3", "b8c6"], "f1b5", ECO_FIXTURE)
+    assert no["corretto"] is False and no["attesa"] == "f1c4"   # attesa rivelata dopo il tentativo

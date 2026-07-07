@@ -33,7 +33,7 @@ from server import (
     diagnosi_conversione_endpoint,
     _interlaccia_blocchi, _studio_fasi, _tassi_su_occasioni,
     _verifica_soluzione, _flusso,
-    aperture_consiglio, aperture_esplora,
+    aperture_consiglio, aperture_esplora, aperture_puzzle, aperture_puzzle_verifica,
 )
 
 
@@ -1777,3 +1777,14 @@ def test_aperture_consiglio_filtra_per_livello():
     r = aperture_consiglio(fascia_elo=1000, obiettivo="migliorare", minuti=30)
     assert r["livello_target"] == 1
     assert r["consigli"] and all(c["livello"] == 1 for c in r["consigli"])
+
+
+def test_aperture_puzzle_e_verifica():
+    p = aperture_puzzle(mosse="e2e4,e7e5")
+    assert p["disponibile"] is True and p["setup"]
+    assert "attesa" not in p and "corretta" not in p       # la risposta NON e' nel puzzle
+    setup = ",".join(p["setup"])
+    no = aperture_puzzle_verifica(setup=setup, mossa="a1a1")
+    assert no["corretto"] is False and no["attesa"]         # rivelata dopo il tentativo
+    si = aperture_puzzle_verifica(setup=setup, mossa=no["attesa"])
+    assert si["corretto"] is True

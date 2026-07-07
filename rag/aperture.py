@@ -155,6 +155,59 @@ def mossa_da_libro_eco(mosse_uci, eco_map=None):
     return cont[0]["uci"] if cont else None
 
 
+def linea_principale_eco(mosse_uci, max_extra=8, eco_map=None):
+    """[DATO offline] Estende la linea data seguendo la mossa da libro (principale) ad ogni passo.
+    Restituisce (punti, linea): `punti` = lista di (prefisso, mossa_corretta) su cui si puo'
+    interrogare l'utente; `linea` = la sequenza completa raggiunta. Si ferma quando esce dal libro
+    o dopo max_extra semimosse (evita cicli/lunghezze eccessive)."""
+    seq = list(mosse_uci)
+    punti = []
+    for _ in range(max_extra):
+        m = mossa_da_libro_eco(seq, eco_map)
+        if not m:
+            break
+        punti.append((list(seq), m))
+        seq.append(m)
+    return punti, seq
+
+
+def puzzle_apertura(mosse_uci, indice=None, max_extra=8, eco_map=None):
+    """[DATO offline] Genera un puzzle 'prosegui dalla mossa N' a partire dalla linea di
+    un'apertura. Interroga sulle mosse PRINCIPALI che estendono la linea (la teoria che segue).
+    `indice` sceglie la profondita' (0 = prima mossa fuori dalla linea data; default = la piu'
+    profonda). NON espone la risposta: si verifica con verifica_puzzle. None se non c'e' teoria."""
+    punti, _ = linea_principale_eco(mosse_uci, max_extra, eco_map)
+    if not punti:
+        return None
+    if indice is None:
+        indice = len(punti) - 1
+    indice = max(0, min(indice, len(punti) - 1))
+    prefisso, _corretta = punti[indice]
+    ply = len(prefisso)
+    nome = nome_apertura(prefisso, eco_map)
+    return {
+        "setup": prefisso,
+        "numero_mossa": ply // 2 + 1,
+        "lato": "bianco" if ply % 2 == 0 else "nero",
+        "indice": indice,
+        "totale": len(punti),
+        "apertura": ({"eco": nome[0], "nome": nome[1]} if nome else None),
+    }
+
+
+def verifica_puzzle(setup_uci, mossa_uci, eco_map=None):
+    """[DATO offline] Verifica server-side del puzzle: corretto solo se la mossa e' LA principale
+    da libro (per scelta: drill sulla linea principale). Rivela l'attesa dopo il tentativo."""
+    corretta = mossa_da_libro_eco(setup_uci, eco_map)
+    ok = bool(corretta) and (mossa_uci or "")[:4].lower() == corretta[:4].lower()
+    dopo = nome_apertura(list(setup_uci) + [corretta], eco_map) if corretta else None
+    return {
+        "corretto": ok,
+        "attesa": corretta,
+        "apertura_dopo": ({"eco": dopo[0], "nome": dopo[1]} if dopo else None),
+    }
+
+
 def _parse_continuazioni(dati):
     """
     [DATO - PURO, testabile senza rete] Dalla risposta dell'Explorer estrae le continuazioni

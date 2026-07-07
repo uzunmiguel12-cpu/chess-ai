@@ -52,7 +52,9 @@ for p in (_RAG, _ML):
 from piano import costruisci_piano  # noqa: E402
 from profilo import costruisci_profilo, TIPI_TATTICI, FASI  # noqa: E402
 from converti_vantaggio import diagnosi_conversione  # noqa: E402
-from aperture import nome_apertura, continuazioni_eco  # noqa: E402 (modulo Aperture)
+from aperture import (  # noqa: E402 (modulo Aperture)
+    nome_apertura, continuazioni_eco, puzzle_apertura, verifica_puzzle,
+)
 from consiglio_aperture import consiglia  # noqa: E402
 
 logging.basicConfig(
@@ -1919,6 +1921,33 @@ def aperture_esplora(mosse: str = ""):
         "continuazioni": cont,
         "mossa_da_libro": (cont[0]["uci"] if cont else None),
     }
+
+
+@app.get("/aperture/puzzle")
+def aperture_puzzle(mosse: str = "", indice: int | None = None):
+    """
+    Genera un puzzle 'prosegui dalla mossa N' sull'apertura studiata (linea in `mosse`, UCI
+    separate da virgola). `indice` sceglie la profondita' (0 = prima mossa di teoria oltre la
+    linea; default = la piu' profonda). NON espone la risposta: si verifica con /aperture/puzzle/
+    verifica. `disponibile: false` se da questa apertura non c'e' teoria da cui costruire un puzzle.
+    """
+    seq = [m for m in mosse.split(",") if m]
+    p = puzzle_apertura(seq, indice=indice)
+    if not p:
+        return {"disponibile": False,
+                "motivo": "Nessuna mossa da libro: da questa posizione non posso creare un puzzle."}
+    return {"disponibile": True, **p}
+
+
+@app.get("/aperture/puzzle/verifica")
+def aperture_puzzle_verifica(setup: str = "", mossa: str = ""):
+    """
+    Verifica server-side del puzzle d'apertura: `setup` = posizione (UCI virgola), `mossa` = mossa
+    proposta dall'utente (UCI). Corretto solo se e' LA mossa principale da libro (drill sulla linea
+    principale). Rivela l'attesa dopo il tentativo, cosi' la UI puo' mostrare la mossa giusta.
+    """
+    seq = [m for m in setup.split(",") if m]
+    return verifica_puzzle(seq, mossa)
 
 
 @app.get("/prossimo-puzzle")

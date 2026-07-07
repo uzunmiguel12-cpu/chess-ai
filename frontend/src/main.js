@@ -1691,6 +1691,224 @@ function mostraDisclaimerSeNuovo() {
 }
 mostraDisclaimerSeNuovo();
 
+// ==================== MODULO APERTURE: flusso di studio (sezione a se') ====================
+// Non e' un flusso di puzzle: scacchiera DEDICATA, si naviga coi pulsanti. Consuma
+// /aperture/consiglio (rosa curata) e /aperture/esplora (nome + continuazioni + mossa da libro).
+let boardStudio = null;
+let chessStudio = null;
+let mosseStudio = [];          // UCI applicate finora
+let mosseAperturaBase = [];    // linea iniziale dell'apertura scelta (per "ricomincia")
+let mossaLibroCorrente = null; // la mossa da libro nella posizione corrente
+let puzzleAttivo = false;      // true mentre l'utente sta risolvendo un puzzle d'apertura
+let puzzleSetup = [];          // posizione (UCI) da cui deve proseguire
+let puzzleIndice = 0;          // quale punto della linea principale (per "altro puzzle")
+let puzzleTotale = 0;
+
+function sanDaUci(fen, uci) {
+  try {
+    const c = new Chess(fen);
+    const m = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: 'q' });
+    return m ? m.san : uci;
+  } catch (e) { return uci; }
+}
+
+async function caricaConsigliAperture() {
+  const elo = document.getElementById('ap-elo').value || 1000;
+  const ob = document.getElementById('ap-obiettivo').value;
+  const min = document.getElementById('ap-minuti').value || 30;
+  const col = document.getElementById('ap-colore').value;
+  const box = document.getElementById('ap-consigli');
+  box.textContent = 'Calcolo i consigli...';
+  try {
+    const r = await fetch(`${BACKEND}/aperture/consiglio?fascia_elo=${elo}&obiettivo=${ob}&minuti=${min}&colore=${col}`);
+    const d = await r.json();
+    const righe = (d.consigli || []).map((c) => `
+      <li class="ap-consiglio">
+        <div><strong>${c.nome}</strong> <span class="ap-tag">${c.colore} · liv ${c.livello} · ${c.complessita} varianti</span></div>
+        <div class="ap-perche">${c.perche}</div>
+        <button class="ap-studia" data-mosse="${c.mosse}" data-nome="${c.nome}">Studia questa</button>
+      </li>`).join('');
+    box.innerHTML = `<p class="ap-nota-tempo">${d.nota_tempo || ''}</p>
+      <ol class="ap-lista">${righe}</ol><p class="ap-nota">${d.nota || ''}</p>`;
+    box.querySelectorAll('.ap-studia').forEach((b) => {
+      b.addEventListener('click', () => iniziaStudioApertura(b.dataset.nome, b.dataset.mosse.split(' ')));
+    });
+  } catch (e) { box.textContent = '⚠️ Errore nel contattare il server (avviato su localhost:8000?).'; }
+}
+
+function ricostruisciChessStudio() {
+  chessStudio = new Chess();
+  for (const u of mosseStudio) chessStudio.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: 'q' });
+}
+
+function iniziaStudioApertura(nome, mosseUci) {
+  mosseAperturaBase = mosseUci.slice();
+  mosseStudio = mosseUci.slice();
+  ricostruisciChessStudio();
+  puzzleAttivo = false;
+  puzzleIndice = 0;
+  document.getElementById('ap-puzzle').hidden = true;
+  document.getElementById('ap-studio').hidden = false;
+  document.getElementById('ap-titolo').textContent = nome;
+  if (!boardStudio) {
+    boardStudio = Chessground(document.getElementById('ap-board'), {
+      fen: chessStudio.fen(), orientation: 'white',
+      movable: { color: undefined }, drawable: { enabled: false },
+      highlight: { lastMove: true },
+    });
+  }
+  aggiornaStudioApertura();
+}
+
+async function aggiornaStudioApertura() {
+  const fen = chessStudio.fen();
+  const ult = mosseStudio.length
+    ? [mosseStudio[mosseStudio.length - 1].slice(0, 2), mosseStudio[mosseStudio.length - 1].slice(2, 4)]
+    : undefined;
+  boardStudio.set({ fen, lastMove: ult, movable: { color: undefined } });
+  document.getElementById('ap-indietro').disabled = mosseStudio.length === 0;
+  const info = document.getElementById('ap-info');
+  const contBox = document.getElementById('ap-continuazioni');
+  info.textContent = 'Carico...';
+  try {
+    const r = await fetch(`${BACKEND}/aperture/esplora?mosse=${mosseStudio.join(',')}`);
+    const d = await r.json();
+    mossaLibroCorrente = d.mossa_da_libro || null;
+    const ap = d.apertura ? `${d.apertura.eco} — ${d.apertura.nome}` : '(fuori dalle aperture nominate)';
+    info.innerHTML = `<strong>${ap}</strong> · ${mosseStudio.length} mosse`;
+    document.getElementById('ap-avanti').disabled = !mossaLibroCorrente;
+    const chips = (d.continuazioni || []).slice(0, 8).map((c) => {
+      const san = sanDaUci(fen, c.uci);
+      const et = c.nome ? ` -> ${c.nome}` : '';
+      return `<button class="ap-cont" data-uci="${c.uci}" title="${c.linee} linee ECO${et}">${san} <span class="ap-cont-n">[${c.linee}]</span></button>`;
+    }).join(' ');
+    contBox.innerHTML = chips
+      ? `<p class="ap-cont-titolo">Continuazioni note (clicca per seguirle):</p>${chips}`
+      : '<p class="ap-cont-titolo">Nessuna continuazione nota: sei fuori dal libro.</p>';
+    contBox.querySelectorAll('.ap-cont').forEach((b) => {
+      b.addEventListener('click', () => applicaMossaStudio(b.dataset.uci));
+    });
+  } catch (e) { info.textContent = '⚠️ Errore nel contattare il server.'; }
+}
+
+function applicaMossaStudio(uci) {
+  try { chessStudio.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: 'q' }); }
+  catch (e) { return; }
+  mosseStudio.push(uci);
+  aggiornaStudioApertura();
+}
+
+// --- Puzzle d'apertura: "prosegui dalla mossa N"; corretto = la linea principale (verifica
+// server-side, la risposta non arriva mai al client prima del tentativo). Riusa la scacchiera. ---
+function destsStudio() {
+  const d = new Map();
+  chessStudio.moves({ verbose: true }).forEach((m) => {
+    if (!d.has(m.from)) d.set(m.from, []);
+    d.get(m.from).push(m.to);
+  });
+  return d;
+}
+
+function coloreCg() { return chessStudio.turn() === 'w' ? 'white' : 'black'; }
+
+function abilitaMossaPuzzle() {
+  const ult = puzzleSetup.length
+    ? [puzzleSetup[puzzleSetup.length - 1].slice(0, 2), puzzleSetup[puzzleSetup.length - 1].slice(2, 4)]
+    : undefined;
+  boardStudio.set({
+    fen: chessStudio.fen(), lastMove: ult, turnColor: coloreCg(),
+    movable: { color: coloreCg(), dests: destsStudio(), free: false, events: { after: onMossaPuzzle } },
+  });
+}
+
+async function avviaPuzzleApertura() {
+  const stato = document.getElementById('ap-puzzle-stato');
+  document.getElementById('ap-puzzle').hidden = false;
+  stato.textContent = 'Preparo un puzzle...';
+  try {
+    const r = await fetch(`${BACKEND}/aperture/puzzle?mosse=${mosseAperturaBase.join(',')}&indice=${puzzleIndice}`);
+    const d = await r.json();
+    if (!d.disponibile) { puzzleAttivo = false; stato.textContent = 'ℹ️ ' + (d.motivo || 'Nessun puzzle per questa apertura.'); return; }
+    puzzleAttivo = true;
+    puzzleSetup = d.setup.slice();
+    puzzleTotale = d.totale;
+    puzzleIndice = d.indice;
+    mosseStudio = d.setup.slice();
+    ricostruisciChessStudio();
+    document.getElementById('ap-continuazioni').innerHTML = '';
+    document.getElementById('ap-info').innerHTML = `<strong>🧩 Puzzle</strong>${d.apertura ? ' · ' + d.apertura.nome : ''}`;
+    document.getElementById('ap-avanti').disabled = true;
+    document.getElementById('ap-indietro').disabled = true;
+    stato.textContent = `Muove il ${d.lato}. Trova la mossa principale (mossa ${d.numero_mossa}). Puzzle ${d.indice + 1}/${d.totale}.`;
+    abilitaMossaPuzzle();
+  } catch (e) { stato.textContent = '⚠️ Errore nel contattare il server.'; }
+}
+
+async function onMossaPuzzle(orig, dest) {
+  if (!puzzleAttivo) return;
+  const uci = orig + dest;
+  const fenPrima = chessStudio.fen();
+  boardStudio.set({ movable: { color: undefined } });  // blocco durante la verifica
+  const stato = document.getElementById('ap-puzzle-stato');
+  try {
+    const r = await fetch(`${BACKEND}/aperture/puzzle/verifica?setup=${puzzleSetup.join(',')}&mossa=${uci}`);
+    const d = await r.json();
+    if (d.corretto) {
+      puzzleAttivo = false;
+      chessStudio.move({ from: d.attesa.slice(0, 2), to: d.attesa.slice(2, 4), promotion: 'q' });
+      mosseStudio.push(d.attesa);
+      boardStudio.set({
+        fen: chessStudio.fen(), lastMove: [d.attesa.slice(0, 2), d.attesa.slice(2, 4)],
+        turnColor: coloreCg(), movable: { color: undefined },
+      });
+      const dopo = d.apertura_dopo ? ' → ' + d.apertura_dopo.nome : '';
+      stato.innerHTML = `✅ Esatto: <strong>${sanDaUci(fenPrima, d.attesa)}</strong>${dopo}. "Altro puzzle" per continuare.`;
+    } else {
+      const sanGiusta = sanDaUci(fenPrima, d.attesa);
+      stato.innerHTML = `❌ Non è la principale: la mossa da libro era <strong>${sanGiusta}</strong>. Riprova o prova un altro puzzle.`;
+      ricostruisciChessStudio();  // annullo la mossa dell'utente, riparto dal setup
+      abilitaMossaPuzzle();
+    }
+  } catch (e) { stato.textContent = '⚠️ Errore nel contattare il server.'; }
+}
+
+document.getElementById('ap-puzzle-avvia')?.addEventListener('click', () => {
+  if (!mosseAperturaBase.length) return;
+  puzzleIndice = 0;
+  avviaPuzzleApertura();
+});
+document.getElementById('ap-puzzle-altro')?.addEventListener('click', () => {
+  puzzleIndice = puzzleTotale ? (puzzleIndice + 1) % puzzleTotale : 0;
+  avviaPuzzleApertura();
+});
+document.getElementById('ap-puzzle-esci')?.addEventListener('click', () => {
+  puzzleAttivo = false;
+  document.getElementById('ap-puzzle').hidden = true;
+  mosseStudio = mosseAperturaBase.slice();
+  ricostruisciChessStudio();
+  aggiornaStudioApertura();
+});
+
+document.getElementById('toggle-studio')?.addEventListener('click', () => {
+  const s = document.getElementById('studio-aperture');
+  s.hidden = !s.hidden;
+});
+document.getElementById('ap-consiglia')?.addEventListener('click', caricaConsigliAperture);
+document.getElementById('ap-avanti')?.addEventListener('click', () => {
+  if (mossaLibroCorrente) applicaMossaStudio(mossaLibroCorrente);
+});
+document.getElementById('ap-indietro')?.addEventListener('click', () => {
+  if (!mosseStudio.length) return;
+  mosseStudio.pop();
+  ricostruisciChessStudio();
+  aggiornaStudioApertura();
+});
+document.getElementById('ap-reset')?.addEventListener('click', () => {
+  if (mosseAperturaBase.length || mosseStudio.length) {
+    iniziaStudioApertura(document.getElementById('ap-titolo').textContent, mosseAperturaBase);
+  }
+});
+
 // Avvio: carico i temi, lo stato dei flussi, le statistiche, l'estratto delle
 // carenze (pannello piano) e il primo puzzle.
 caricaTemi();
