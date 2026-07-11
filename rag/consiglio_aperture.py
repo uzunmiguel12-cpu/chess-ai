@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("rag")
 
-from aperture import ramificazione_eco  # noqa: E402
+from aperture import ramificazione_eco, conta_linee  # noqa: E402
 
 # Livelli: 1 = principiante, 2 = intermedio, 3 = avanzato.
 # Obiettivi: "divertimento", "migliorare", "competere".
@@ -68,6 +68,61 @@ APERTURE_CURATE = [
     {"nome": "Est-Indiana (King's Indian)", "colore": "nero", "mosse": "d2d4 g8f6 c2c4 g7g6",
      "livello": 3, "obiettivi": {"migliorare", "competere"},
      "perche": "Dinamica e ricca di attacchi, ma impegnativa: da affrontare con esperienza."},
+    # --- Catalogo ampliato (galleria 'Tutte le aperture') ---
+    {"nome": "Difesa dei Due Cavalli", "colore": "nero", "mosse": "e2e4 e7e5 g1f3 b8c6 f1c4 g8f6",
+     "livello": 2, "obiettivi": {"migliorare", "competere"},
+     "perche": "Rispondi all'Italiana attaccando: inviti complicazioni e contrattacchi subito."},
+    {"nome": "Attacco Fegatello (Fried Liver)", "colore": "bianco", "mosse": "e2e4 e7e5 g1f3 b8c6 f1c4 g8f6 f3g5",
+     "livello": 2, "obiettivi": {"divertimento", "competere"},
+     "perche": "Punti f7 con Cg5: una delle linee piu' aggressive e trappolose per il Bianco."},
+    {"nome": "Contrattacco Traxler", "colore": "nero", "mosse": "e2e4 e7e5 g1f3 b8c6 f1c4 g8f6 f3g5 f8c5",
+     "livello": 3, "obiettivi": {"divertimento", "competere"},
+     "perche": "Ignori la minaccia su f7 e attacchi tu: caos totale, roba da temerari."},
+    {"nome": "Gambetto di Re", "colore": "bianco", "mosse": "e2e4 e7e5 f2f4",
+     "livello": 2, "obiettivi": {"divertimento", "competere"},
+     "perche": "Sacrifichi un pedone per aprire la colonna f e attaccare il re: romantico e tagliente."},
+    {"nome": "Gambetto Evans", "colore": "bianco", "mosse": "e2e4 e7e5 g1f3 b8c6 f1c4 f8c5 b2b4",
+     "livello": 2, "obiettivi": {"divertimento", "competere"},
+     "perche": "Offri un pedone nell'Italiana per un vantaggio di sviluppo travolgente."},
+    {"nome": "Gambetto Danese", "colore": "bianco", "mosse": "e2e4 e7e5 d2d4 e5d4 c2c3",
+     "livello": 2, "obiettivi": {"divertimento"},
+     "perche": "Sacrifichi uno, poi due pedoni per due alfieri feroci puntati sul re nero."},
+    {"nome": "Difesa Petrov (Russa)", "colore": "nero", "mosse": "e2e4 e7e5 g1f3 g8f6",
+     "livello": 2, "obiettivi": {"migliorare"},
+     "perche": "Invece di difendere e5 contrattacchi e4: solida, simmetrica, molto sicura."},
+    {"nome": "Difesa Philidor", "colore": "nero", "mosse": "e2e4 e7e5 g1f3 d7d6",
+     "livello": 1, "obiettivi": {"migliorare"},
+     "perche": "Difesa compatta e senza fronzoli contro 1.e4: poca teoria, struttura sana."},
+    {"nome": "Difesa Pirc", "colore": "nero", "mosse": "e2e4 d7d6 d2d4 g8f6 b1c3 g7g6",
+     "livello": 2, "obiettivi": {"competere"},
+     "perche": "Lasci il centro al Bianco per poi colpirlo dai fianchi col fianchetto."},
+    {"nome": "Difesa Alekhine", "colore": "nero", "mosse": "e2e4 g8f6",
+     "livello": 2, "obiettivi": {"divertimento", "competere"},
+     "perche": "Provochi i pedoni bianchi ad avanzare per poi attaccarli: ipermoderna."},
+    {"nome": "Difesa Nimzo-Indiana", "colore": "nero", "mosse": "d2d4 g8f6 c2c4 e7e6 b1c3 f8b4",
+     "livello": 3, "obiettivi": {"competere"},
+     "perche": "Inchiodi il cavallo c3 e giochi sui pedoni doppiati: raffinata e rispettatissima."},
+    {"nome": "Difesa Ovest-Indiana", "colore": "nero", "mosse": "d2d4 g8f6 c2c4 e7e6 g1f3 b7b6",
+     "livello": 3, "obiettivi": {"competere"},
+     "perche": "Fianchetti l'alfiere di donna e controlli e4 a distanza: gioco posizionale."},
+    {"nome": "Difesa Grunfeld", "colore": "nero", "mosse": "d2d4 g8f6 c2c4 g7g6 b1c3 d7d5",
+     "livello": 3, "obiettivi": {"competere"},
+     "perche": "Lasci costruire un centro al Bianco per demolirlo dai fianchi: dinamica e affilata."},
+    {"nome": "Difesa Olandese", "colore": "nero", "mosse": "d2d4 f7f5",
+     "livello": 2, "obiettivi": {"divertimento", "competere"},
+     "perche": "Contro 1.d4 punti subito all'attacco sul re con la colonna f."},
+    {"nome": "Apertura Inglese", "colore": "bianco", "mosse": "c2c4",
+     "livello": 2, "obiettivi": {"migliorare", "competere"},
+     "perche": "Controlli d5 dal fianco: flessibile, ricca di trasposizioni, poca teoria forzata."},
+    {"nome": "Apertura Reti", "colore": "bianco", "mosse": "g1f3 d7d5 c2c4",
+     "livello": 2, "obiettivi": {"competere"},
+     "perche": "Ipermoderna: sviluppi e attacchi il centro nero da lontano."},
+    {"nome": "Gambetto Viennese", "colore": "bianco", "mosse": "e2e4 e7e5 b1c3 g8f6 f2f4",
+     "livello": 2, "obiettivi": {"divertimento", "competere"},
+     "perche": "La Viennese che morde: apri la colonna f e vai all'attacco."},
+    {"nome": "Gambetto di Budapest", "colore": "nero", "mosse": "d2d4 g8f6 c2c4 e7e5",
+     "livello": 2, "obiettivi": {"divertimento"},
+     "perche": "Sorpresa contro 1.d4: offri un pedone per pezzi attivi e trappole insidiose."},
 ]
 
 
@@ -143,6 +198,20 @@ def consiglia(fascia_elo, obiettivo, minuti, colore="entrambi", f_complessita=No
                  "e filtrata per il tuo livello/obiettivo. Puoi comunque studiare qualsiasi "
                  "apertura: questi sono solo i consigliati da cui partire."),
     }
+
+
+def catalogo(f_conta=None):
+    """Catalogo COMPLETO delle aperture curate per la galleria 'Tutte le aperture'. Per ognuna:
+    nome, colore, livello, mosse (linea che la definisce), descrizione (scritta a mano) e
+    `linee` = numero di varianti ECO reali che passano di li' (proxy onesto, non inventato).
+    `f_conta` e' iniettabile per i test (default: conta_linee dai dati ECO)."""
+    f_conta = f_conta or conta_linee
+    return [{
+        "nome": a["nome"], "colore": a["colore"], "livello": a["livello"],
+        "mosse": a["mosse"], "descrizione": a["perche"],
+        "obiettivi": sorted(a["obiettivi"]),
+        "linee": f_conta(a["mosse"].split()),
+    } for a in APERTURE_CURATE]
 
 
 if __name__ == "__main__":

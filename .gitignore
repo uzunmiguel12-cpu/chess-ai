@@ -8,10 +8,16 @@ node_modules/
 dist/
 build/
 *.pgn
-data/
+# Solo la cartella dati alla RADICE del repo è sacra/ignorata (non frontend/src/data, che è codice).
+/data/
 .DS_Store
 .vscode/
 .idea/
-engine/bin/ 
-!engine/partita_esempio.pgn 
-!engine/partite_multiple.pgn 
+.claude/
+# Cache del coach: output generato da genera_coach.py (Ollama/Qwen), rigenerabile.
+rag/coach_aperture.json
+# Motore Stockfish: binario grande (~109MB), va installato a parte, non versionato.
+engine/bin/
+# Eccezioni: PGN d'esempio da versionare nonostante la regola *.pgn
+!engine/partita_esempio.pgn
+!engine/partite_multiple.pgn

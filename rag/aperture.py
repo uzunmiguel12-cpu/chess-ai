@@ -148,6 +148,16 @@ def ramificazione_eco(mosse_uci, eco_map=None):
     return len(continuazioni_eco(mosse_uci, eco_map))
 
 
+def conta_linee(mosse_uci, eco_map=None):
+    """[DATO offline] Quante linee ECO nominate passano da questa posizione: proxy ONESTO di
+    'quante varianti ha' l'apertura (per la galleria 'Tutte le aperture', stile 'N lines total').
+    Conta le chiavi ECO la cui sequenza inizia con `mosse_uci` (la linea stessa + le sue estensioni)."""
+    eco_map = eco_map if eco_map is not None else _eco_default()
+    p = list(mosse_uci)
+    n = len(p)
+    return sum(1 for k in eco_map if k.split()[:n] == p)
+
+
 def mossa_da_libro_eco(mosse_uci, eco_map=None):
     """[DATO offline] La mossa 'da libro' senza Explorer: la continuazione ECO piu' sviluppata
     (con piu' linee). E' la risposta corretta dei puzzle d'apertura. None se non ce ne sono."""

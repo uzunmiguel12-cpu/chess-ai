@@ -55,7 +55,8 @@ from converti_vantaggio import diagnosi_conversione  # noqa: E402
 from aperture import (  # noqa: E402 (modulo Aperture)
     nome_apertura, continuazioni_eco, puzzle_apertura, verifica_puzzle,
 )
-from consiglio_aperture import consiglia  # noqa: E402
+from consiglio_aperture import consiglia, catalogo  # noqa: E402
+from coach import spiega as coach_spiega  # noqa: E402 (coach aperture: lookup cache)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1903,6 +1904,23 @@ def aperture_consiglio(fascia_elo: int = 1000, obiettivo: str = "migliorare",
                        minuti: int = 30, colore: str = "entrambi"):
     """Rosa curata di aperture consigliate in base al questionario (Elo/obiettivo/minuti/colore)."""
     return consiglia(fascia_elo, obiettivo, minuti, colore=colore)
+
+
+@app.get("/aperture/catalogo")
+def aperture_catalogo():
+    """Catalogo completo delle aperture curate per la galleria 'Tutte le aperture': nome, colore,
+    livello, mosse, descrizione e numero di varianti ECO reali (`linee`)."""
+    return {"aperture": catalogo()}
+
+
+@app.get("/aperture/coach")
+def aperture_coach(mosse: str = ""):
+    """Spiegazione PRE-GENERATA del coach per la posizione dopo `mosse` (UCI, virgola). Lookup
+    puro nella cache (genera_coach.py): `disponibile: false` se la posizione non e' stata ancora
+    generata (niente testo inventato al volo)."""
+    seq = [m for m in mosse.split(",") if m]
+    testo = coach_spiega(seq)
+    return {"disponibile": bool(testo), "testo": testo}
 
 
 @app.get("/aperture/esplora")

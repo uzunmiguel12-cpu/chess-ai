@@ -8,7 +8,7 @@ Esegui (dalla cartella rag):  pytest
 from aperture import (
     _parse_continuazioni, ramificazione, nome_apertura, _fascia_a_bucket, ECO_SAMPLE,
     continuazioni_eco, ramificazione_eco, mossa_da_libro_eco,
-    linea_principale_eco, puzzle_apertura, verifica_puzzle,
+    linea_principale_eco, puzzle_apertura, verifica_puzzle, conta_linee,
 )
 
 # Risposta finta dell'Explorer nella forma reale (moves ordinate per frequenza).
@@ -87,6 +87,13 @@ def test_continuazioni_eco_e_mossa_da_libro():
     assert cont[1]["uci"] == "f1c4" and cont[1]["linee"] == 1
     assert ramificazione_eco(["e2e4", "e7e5"], ECO_FIXTURE) == 2
     assert mossa_da_libro_eco(["e2e4", "e7e5"], ECO_FIXTURE) == "g1f3"
+
+
+def test_conta_linee():
+    # Tutte e 6 le chiavi del fixture iniziano con "e2e4 e7e5".
+    assert conta_linee(["e2e4", "e7e5"], ECO_FIXTURE) == 6
+    # Solo 2 proseguono dopo "...g1f3 b8c6" (f1c4, f1b5) + la chiave stessa = 3.
+    assert conta_linee(["e2e4", "e7e5", "g1f3", "b8c6"], ECO_FIXTURE) == 3
 
 
 def test_continuazioni_eco_posizione_foglia():

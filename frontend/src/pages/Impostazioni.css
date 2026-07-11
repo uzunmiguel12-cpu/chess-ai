@@ -1,0 +1,67 @@
+.impostazioni { display: flex; flex-direction: column; gap: var(--sp-4); }
+.imp-layout { display: grid; grid-template-columns: 240px 1fr; gap: var(--sp-4); align-items: start; }
+@media (max-width: 760px) { .imp-layout { grid-template-columns: 1fr; } }
+
+/* Sidebar */
+.imp-sidebar { display: flex; flex-direction: column; gap: 2px; }
+.imp-voce {
+  display: flex; align-items: center; gap: 10px; text-align: left; font: inherit; cursor: pointer;
+  color: var(--text-muted); background: transparent; border: 1px solid transparent;
+  border-radius: var(--radius-sm); padding: 10px 12px;
+}
+.imp-voce:hover { background: var(--surface-2); color: var(--text); }
+.imp-voce.attiva { background: var(--accent-soft); color: var(--text); border-color: var(--accent); font-weight: 600; }
+.imp-voce-ic { width: 1.3em; text-align: center; }
+
+/* Contenuto */
+.imp-contenuto { min-height: 360px; }
+.imp-contenuto h2 { margin: 0 0 var(--sp-4); }
+.imp-campo { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--sp-4); max-width: 420px; }
+.imp-campo > span { font-size: 0.85rem; color: var(--text-muted); }
+.imp-campo input, .imp-campo select {
+  font: inherit; color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 8px 12px;
+}
+.imp-campo input:focus, .imp-campo select:focus { outline: none; border-color: var(--accent); }
+
+/* Avatar picker */
+.imp-avatars { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; max-width: 420px; }
+.imp-av { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1.2rem; background: var(--surface-2); border: 1px solid transparent; border-radius: var(--radius-sm); }
+.imp-av:hover { background: var(--surface-3); }
+.imp-av.attivo { border-color: var(--accent); background: var(--accent-soft); }
+
+/* Scacchiera e pezzi */
+.imp-scac { display: grid; grid-template-columns: 1fr auto; gap: var(--sp-5); align-items: start; }
+@media (max-width: 720px) { .imp-scac { grid-template-columns: 1fr; } }
+.imp-temi { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
+.imp-tema { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; font: inherit; background: transparent; border: 1px solid var(--border); border-radius: var(--radius); padding: var(--sp-2); }
+.imp-tema:hover { border-color: var(--accent); }
+.imp-tema.attivo { border-color: var(--accent); background: var(--accent-soft); }
+.imp-tema-sw { width: 100%; height: 44px; border-radius: 6px; border: 1px solid var(--border); }
+.imp-tema-nome { font-size: 0.85rem; }
+.imp-anteprima { text-align: center; }
+.imp-anteprima .mini-board { width: 200px; height: 200px; border-radius: 6px; overflow: hidden; }
+
+/* Selettore set di pezzi */
+.imp-campo-largo { max-width: none; }
+.imp-pezzi { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.imp-pezzo {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; font: inherit;
+  min-width: 84px; padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+  transition: border-color 0.18s ease, transform 0.09s ease, background 0.18s ease;
+}
+.imp-pezzo:hover { border-color: var(--accent); transform: translateY(-1px); }
+.imp-pezzo.attivo { border-color: var(--accent); background: var(--accent-soft); }
+.imp-pezzo-camp { font-size: 2rem; line-height: 1; }
+.imp-pezzo-nome { font-size: 0.85rem; color: var(--text-muted); }
+
+.imp-prova-suoni { margin-top: var(--sp-2); }
+
+/* Interruttore */
+.imp-switch-riga { display: flex; align-items: center; gap: 12px; margin: var(--sp-3) 0; cursor: default; }
+.imp-switch { width: 46px; height: 26px; border-radius: 999px; background: var(--surface-3); position: relative; cursor: pointer; transition: background 0.2s ease; flex-shrink: 0; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.imp-switch.on { background: var(--ok); box-shadow: none; }
+.imp-switch-pallina { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); transition: left 0.22s cubic-bezier(0.4, 0.9, 0.3, 1.3); }
+.imp-switch.on .imp-switch-pallina { left: 23px; }
+.imp-switch-testo { font-size: 0.95rem; }

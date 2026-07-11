@@ -1,0 +1,66 @@
+.allenamento { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* --- Menu dei flussi (nessuna scacchiera qui): 3 toggle sobri affiancati --- */
+.flussi-menu { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
+.flusso-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  text-align: left; font: inherit; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: var(--sp-4);
+  transition: border-color 0.15s, background 0.15s, transform 0.05s;
+}
+.flusso-card:hover { border-color: var(--accent); background: var(--surface-2); transform: translateY(-2px); }
+.flusso-card:active { transform: translateY(1px); }
+.flusso-card.disabilitato { opacity: 0.5; cursor: not-allowed; }
+.flusso-card.disabilitato:hover { border-color: var(--border); background: var(--surface); }
+.fc-ic { font-size: 1.5rem; }
+.fc-tit { font-weight: 650; }
+.fc-sub { color: var(--text-muted); font-size: 0.88rem; }
+@media (max-width: 760px) { .flussi-menu { grid-template-columns: 1fr; } }
+
+.torna { align-self: flex-start; font-size: 0.9rem; }
+.pannello-intestazione { color: var(--text-muted); margin: 0; }
+
+/* --- Temi: categorie (tab) + menu scorrevole del tema --- */
+.temi { display: flex; flex-direction: column; gap: var(--sp-3); }
+.temi-tabs { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.temi-tab {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font: inherit; font-weight: 600; line-height: 1; white-space: nowrap; cursor: pointer;
+  min-height: 38px; padding: 0 20px;
+  color: var(--text-muted); background: var(--surface-2);
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.09s ease;
+}
+.temi-tab:hover { color: var(--text); background: var(--surface-3); transform: translateY(-1px); }
+.temi-tab:active { transform: translateY(0); }
+.temi-tab.attivo { color: var(--text); background: var(--accent-soft); border-color: var(--accent); }
+
+.tema-menu {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 240px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: var(--sp-2);
+}
+.tema-voce {
+  font: inherit; text-align: left; cursor: pointer;
+  color: var(--text); background: transparent; border: none;
+  border-radius: var(--radius-sm); padding: 8px 12px; text-transform: capitalize;
+}
+.tema-voce:hover { background: var(--surface-2); }
+.tema-voce.attivo { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+.temi-hint { font-size: 0.9rem; margin: 0; }
+
+/* --- Zona scacchiera --- */
+.zona-scacchiera { display: flex; flex-direction: column; align-items: center; gap: var(--sp-3); }
+.stato { color: var(--text-muted); font-size: 0.9rem; text-align: center; }
+.info { min-height: 1.6em; text-align: center; }
+.info .turno { color: var(--accent); font-weight: 600; }
+.info .ok { color: var(--ok); font-weight: 600; }
+.info .ko { color: var(--err); font-weight: 600; }
+.stats { color: var(--text-faint); font-size: 0.85rem; text-align: center; }
+.replay { font-size: 0.9rem; }
+
+.badge-origine { font-size: 0.82rem; font-weight: 600; border-radius: 999px; padding: 3px 12px; }
+.badge-errore { color: var(--warn); background: rgba(224, 165, 59, 0.14); }
+.badge-lichess { color: var(--text-muted); background: var(--surface-2); }

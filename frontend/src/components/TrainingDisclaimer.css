@@ -1,0 +1,17 @@
+.disclaimer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+}
+.disclaimer-box {
+  max-width: 540px;
+  box-shadow: var(--shadow);
+}
+.disclaimer-box h2 { margin-bottom: var(--sp-3); }
+.disclaimer-box .btn { margin-top: var(--sp-2); }

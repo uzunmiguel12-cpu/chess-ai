@@ -5,7 +5,7 @@ complessita' finta (numero di mosse) per non dipendere dal dataset ECO reale.
 Esegui (dalla cartella rag):  pytest
 """
 
-from consiglio_aperture import consiglia, _livello_target, _nota_tempo, APERTURE_CURATE
+from consiglio_aperture import consiglia, _livello_target, _nota_tempo, APERTURE_CURATE, catalogo
 
 
 def _compl_finta(mosse):
@@ -71,3 +71,12 @@ def test_consigli_hanno_i_campi():
 def test_rosa_curata_non_vuota():
     assert len(APERTURE_CURATE) > 0
     assert all("mosse" in a and "livello" in a for a in APERTURE_CURATE)
+
+
+def test_catalogo_ha_campi_e_linee():
+    cat = catalogo(f_conta=lambda m: len(m))
+    assert len(cat) == len(APERTURE_CURATE) and len(cat) >= 20
+    for c in cat:
+        for campo in ("nome", "colore", "livello", "mosse", "descrizione", "linee", "obiettivi"):
+            assert campo in c
+        assert isinstance(c["linee"], int)

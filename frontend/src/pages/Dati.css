@@ -1,0 +1,18 @@
+.dati { display: flex; flex-direction: column; gap: var(--sp-4); max-width: 720px; }
+.dati-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-4); }
+.campo { display: flex; flex-direction: column; gap: 6px; }
+.campo span { font-size: 0.85rem; color: var(--text-muted); }
+.campo input, .campo select {
+  font: inherit; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); padding: 8px 12px; min-width: 220px;
+}
+.campo input:focus, .campo select:focus { outline: none; border-color: var(--accent); }
+
+.dati-esito { border-radius: var(--radius); padding: var(--sp-3) var(--sp-4); font-size: 0.95rem; }
+.dati-esito.ok { color: var(--ok); background: var(--ok-soft); }
+.dati-esito.errore { color: var(--err); background: var(--err-soft); }
+.dati-esito.info { color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border); }
+
+.dati-note h3 { margin-bottom: var(--sp-2); }
+.dati-note p { margin-bottom: var(--sp-2); }

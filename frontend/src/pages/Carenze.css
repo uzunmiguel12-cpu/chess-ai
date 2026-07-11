@@ -1,0 +1,75 @@
+.carenze { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* Grafici "Evoluzione nel tempo" */
+.carenze .grafico-box { position: relative; }
+.carenze .grafico-box canvas { max-height: 320px; }
+.carenze .grafico-secondo { margin-top: var(--sp-5); }
+
+.carenza-sintesi { font-size: 1.05rem; border-left: 3px solid var(--accent); }
+
+.carenza-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.carenza-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-2); }
+.carenza-item.carenza-principale { border: 1px solid var(--warn); }
+.carenza-item.non-rilevante { opacity: 0.6; }
+.carenza-item.non-tattico { background: transparent; border: 1px dashed var(--border-strong); }
+.carenza-nome { font-weight: 600; text-transform: capitalize; }
+.carenza-num { color: var(--text-muted); font-size: 0.9rem; }
+.carenza-tag { font-size: 0.75rem; color: var(--text-faint); background: var(--surface-3); border-radius: 999px; padding: 1px 8px; margin-left: auto; }
+.carenza-nota-piccola { font-size: 0.82rem; color: var(--text-faint); margin: var(--sp-2) 0 0; }
+
+/* Barre qualità mosse / fasi */
+.qualita-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.qualita-riga { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 10px; }
+.qualita-nome { text-transform: capitalize; font-size: 0.9rem; }
+.qualita-barra { height: 12px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
+.qualita-fill { display: block; height: 100%; background: var(--accent); }
+.qualita-num { color: var(--text-muted); font-size: 0.85rem; }
+.qualita-best { background: #46b17b; }
+.qualita-excellent { background: #6bbf8a; }
+.qualita-good { background: #9ccc9c; }
+.qualita-inaccuracy { background: #e0a53b; }
+.qualita-mistake { background: #e58657; }
+.qualita-blunder { background: #e5678a; }
+.fasi-fill-peggiore { background: var(--warn); }
+.fasi-denominatore { color: var(--text-muted); font-size: 0.9rem; }
+.fasi-raccomandazione { font-weight: 550; }
+.fasi-bottoni { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+/* Piano */
+.piano-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.piano-voce { padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: 4px; }
+.piano-voce-testa { display: flex; align-items: center; gap: 8px; }
+.piano-tema { font-weight: 600; text-transform: capitalize; }
+.piano-priorita { margin-left: auto; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-faint); }
+.priorita-alta { color: var(--err); }
+.priorita-media { color: var(--warn); }
+.piano-dato { color: var(--text-muted); font-size: 0.88rem; }
+.piano-allena { align-self: flex-start; font-size: 0.85rem; padding: 4px 10px; }
+.piano-ricalibrato { font-size: 0.9rem; color: var(--text-muted); }
+
+/* Tendenze */
+.piano-tendenza, .confronto-arrow, .confronto-delta { font-weight: 700; }
+.tend-migliorato { color: var(--ok); }
+.tend-peggiorato { color: var(--err); }
+.tend-stabile { color: var(--text-faint); }
+
+/* Confronto */
+.confronto-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.confronto-voce { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius-sm); flex-wrap: wrap; }
+.confronto-nome { text-transform: capitalize; }
+.confronto-tassi { color: var(--text-muted); font-size: 0.9rem; }
+.conv-avviso { color: var(--warn); font-size: 0.9rem; }
+
+/* Conversione */
+.conv-sintesi { line-height: 1.7; }
+.conv-evidenza { display: flex; align-items: baseline; gap: 10px; margin: var(--sp-3) 0; }
+.conv-evidenza-num { font-size: 2rem; font-weight: 700; color: var(--accent); }
+.conv-evidenza-eti { color: var(--text-muted); }
+.conv-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.conv-voce { display: flex; gap: 8px; align-items: baseline; font-size: 0.9rem; padding: 4px 0; }
+.conv-vantaggio { font-weight: 600; }
+
+/* Principi da ripassare (collegamento carenze -> teoria) */
+.pr-consigliati { border-left: 3px solid var(--accent); }
+.pr-consigliati-lista { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
+.pr-cons-btn { font-weight: 600; }

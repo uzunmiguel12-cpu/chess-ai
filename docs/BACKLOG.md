@@ -40,6 +40,17 @@
 - [ ] Aperture: puzzle d'apertura (prosegui dalla mossa N; risposta corretta = mossa da libro dell'Explorer alla fascia)
 - [ ] Aperture v2: coach LLM narratore VINCOLATO ai dati reali (mai mosse inventate); provider LLM da decidere
 
+## Modulo Principi (studio posizionale - copre gli 'errori posizionali' non tattici)
+- [ ] Principi: sezione dedicata nel sito (nav + struttura a temi consultabile)
+- [ ] Principi: struttura dei temi (centro, sviluppo, sicurezza del re, struttura pedonale, attivita' dei pezzi, spazio, case deboli, formulare un piano)
+- [ ] Principi: contenuti teorici per tema (spiegazione onesta = teoria consolidata, niente invenzioni; esempi e diagrammi)
+- [ ] Principi: mini-diagrammi/posizioni illustrative per ogni principio (scacchiera statica)
+- [ ] Principi: collegamento con le Carenze (consiglia i temi dai tuoi errori posizionali 'non_tattico')
+- [ ] Principi: quiz di comprensione per tema (verifica la teoria posizionale, non la tattica)
+- [ ] Principi: approfondire OGNI principio come mini-lezione (definizione, come riconoscerlo, come sfruttarlo o difendersi, esempi con diagrammi, errore comune da evitare)
+- [ ] Principi: ampliare il numero di principi/card per un'ampia gamma di studio (piu' temi e piu' voci per tema)
+- [ ] Principi v2: coach che spiega il principio applicato alla posizione (LLM locale, vincolato ai dati)
+
 ## Fase 5 - multi-utente (grande, futura)
 - [ ] Fase 5: sistema di account e login sicuro
 - [ ] Fase 5: database utenti con dati isolati
