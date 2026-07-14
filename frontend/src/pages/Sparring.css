@@ -1,0 +1,52 @@
+.sparring { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+.sp-testa h2 { margin: 0 0 4px; }
+.sp-sotto { color: var(--text-muted); margin: 0; font-size: 0.95rem; }
+
+.sp-griglia { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, 1fr); gap: var(--sp-4); align-items: start; }
+@media (max-width: 900px) { .sp-griglia { grid-template-columns: 1fr; } }
+
+/* Scacchiera */
+.sp-board-card { display: flex; flex-direction: column; gap: var(--sp-3); }
+.sp-controlli { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; }
+.sp-controlli label { font-size: 0.9rem; color: var(--text-muted); }
+.sp-controlli select {
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 8px; font: inherit;
+}
+.sp-board-wrap { width: 100%; max-width: 520px; margin: 0 auto; }
+.sp-board { width: 100%; aspect-ratio: 1; }
+.sp-board .cg-wrap { width: 100%; height: 100%; }
+.sp-stato { min-height: 1.4em; font-size: 0.92rem; color: var(--text-muted); display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+.sp-apertura { color: var(--accent); }
+
+/* Coach */
+.sp-coach { display: flex; flex-direction: column; gap: var(--sp-3); }
+.sp-coach h3 { margin: 0; }
+.sp-vuoto { color: var(--text-muted); font-size: 0.95rem; }
+
+.sp-esito { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--sp-3); }
+.sp-esito-riga { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
+.sp-badge { font-weight: 650; padding: 2px 10px; border-radius: 999px; font-size: 0.85rem; }
+.sp-mossa { font-weight: 650; font-size: 1.05rem; }
+.sp-cp { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.sp-ok .sp-badge          { background: rgba(46, 160, 67, 0.18);  color: #4ade80; }
+.sp-teoria .sp-badge      { background: rgba(96, 165, 250, 0.18); color: #93c5fd; }
+.sp-tattico .sp-badge     { background: rgba(248, 113, 113, 0.18); color: #fca5a5; }
+.sp-posizionale .sp-badge { background: rgba(251, 191, 36, 0.18); color: #fcd34d; }
+
+.sp-spiega { margin-top: var(--sp-2); font-size: 0.95rem; }
+.sp-spiega-titolo { margin: 0 0 4px; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.sp-spiega ul { margin: 0; padding-left: 1.2em; }
+.sp-delta { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.sp-rischio { margin: var(--sp-2) 0 0; font-size: 0.9rem; color: var(--text-muted); }
+.sp-stima { font-size: 0.78rem; opacity: 0.8; }
+
+/* Storico errori */
+.sp-storia h4 { margin: 0 0 6px; font-size: 0.95rem; }
+.sp-storia ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; }
+.sp-storia-mossa { font-weight: 600; }
+.sp-tag { padding: 1px 8px; border-radius: 999px; font-size: 0.78rem; }
+.sp-storia-perche { color: var(--text-muted); }

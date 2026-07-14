@@ -9,7 +9,14 @@ const DEFAULTS = {
   suoni: true, lingua: 'it',
   // Accessibilità
   riduciAnimazioni: false, dimensioneTesto: 'normale', contrastoAlto: false,
+  // Preferenze allenamento
+  velocitaAnimazioni: 'normale', mostraMossePossibili: true, maxTentativi: 3,
+  // Sistema (vuoto = usa il default in config.js)
+  backendUrl: '',
 };
+
+// Esposto per la sezione "Dati e privacy" (reset alle impostazioni di fabbrica).
+export const IMPOSTAZIONI_DEFAULT = DEFAULTS;
 const KEY = 'impostazioni';
 const Ctx = createContext(null);
 
@@ -33,11 +40,15 @@ export function ImpostazioniProvider({ children }) {
   // Collego il toggle Suoni al motore audio (flag globale in suoni.js).
   useEffect(() => { abilitaSuoni(imp.suoni); }, [imp.suoni]);
   const aggiorna = (patch) => setImp((s) => ({ ...s, ...patch }));
-  return <Ctx.Provider value={{ imp, aggiorna }}>{children}</Ctx.Provider>;
+  // Ripristina i valori di fabbrica (usato da "Dati e privacy"). Tiene solo le chiavi note.
+  const ripristina = () => setImp({ ...DEFAULTS });
+  // Sostituisce l'intero set (import da file): merge sui default per ignorare chiavi ignote.
+  const sostituisci = (obj) => setImp({ ...DEFAULTS, ...(obj && typeof obj === 'object' ? obj : {}) });
+  return <Ctx.Provider value={{ imp, aggiorna, ripristina, sostituisci }}>{children}</Ctx.Provider>;
 }
 
 export function useImpostazioni() {
-  return useContext(Ctx) || { imp: DEFAULTS, aggiorna: () => {} };
+  return useContext(Ctx) || { imp: DEFAULTS, aggiorna: () => {}, ripristina: () => {}, sostituisci: () => {} };
 }
 
 // Elenchi condivisi (usati dalla pagina Impostazioni e dal menu avatar).
@@ -66,3 +77,15 @@ export const DIMENSIONI_TESTO = [
   { id: 'normale', nome: 'Normale' },
   { id: 'grande', nome: 'Grande' },
 ];
+
+// Velocità delle animazioni della scacchiera (Preferenze allenamento) → durata in ms per chessground.
+export const VELOCITA_ANIM = [
+  { id: 'off', nome: 'Nessuna', durata: 0 },
+  { id: 'lenta', nome: 'Lenta', durata: 400 },
+  { id: 'normale', nome: 'Normale', durata: 250 },
+  { id: 'veloce', nome: 'Veloce', durata: 120 },
+];
+export const durataAnim = (id) => (VELOCITA_ANIM.find((v) => v.id === id) || VELOCITA_ANIM[2]).durata;
+
+// Tentativi consentiti prima di rivelare la soluzione (Preferenze allenamento).
+export const MAX_TENTATIVI_OPZIONI = [1, 2, 3, 5];

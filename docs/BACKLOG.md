@@ -32,24 +32,39 @@
 - [x] Rimuovere gli .svg di esempio residui in frontend/src/assets
 
 ## Modulo Aperture (nuovo capitolo) - deciso: fonte = Lichess Explorer + ECO, LLM in v2
-- [ ] Aperture: dataset ECO (nomi <-> sequenze di mosse) scaricato e caricabile
+- [x] Aperture: dataset ECO (nomi <-> sequenze di mosse) scaricato e caricabile
 - [ ] Aperture: query al Lichess Opening Explorer per posizione, filtrata per fascia Elo (con cache locale)
-- [ ] Aperture: questionario iniziale (fascia Elo, obiettivo, minuti al giorno)
-- [ ] Aperture: motore di consiglio (da quali aperture partire; "semplicita'" = ramificazione dai dati Explorer)
-- [ ] Aperture: quarto flusso indipendente 'aperture' con studio passo-passo (linee reali + varianti + statistiche)
-- [ ] Aperture: puzzle d'apertura (prosegui dalla mossa N; risposta corretta = mossa da libro dell'Explorer alla fascia)
-- [ ] Aperture v2: coach LLM narratore VINCOLATO ai dati reali (mai mosse inventate); provider LLM da decidere
+- [x] Aperture: questionario iniziale (fascia Elo, obiettivo, minuti al giorno)
+- [x] Aperture: motore di consiglio (da quali aperture partire; "semplicita'" = ramificazione dai dati Explorer)
+- [x] Aperture: quarto flusso indipendente 'aperture' con studio passo-passo (linee reali + varianti + statistiche)
+- [x] Aperture: puzzle d'apertura (prosegui dalla mossa N; risposta corretta = mossa da libro dell'Explorer alla fascia)
+- [x] Aperture v2: coach LLM narratore VINCOLATO ai dati reali (mai mosse inventate); provider LLM da decidere
+> Note: consiglio basato su rosa CURATA (~31 aperture) + complessità ECO, non su query live al Lichess
+> Explorer (l'unica voce ancora aperta). Coach = Ollama/qwen3:8b precompute → cache `rag/coach_aperture.json`.
 
 ## Modulo Principi (studio posizionale - copre gli 'errori posizionali' non tattici)
-- [ ] Principi: sezione dedicata nel sito (nav + struttura a temi consultabile)
-- [ ] Principi: struttura dei temi (centro, sviluppo, sicurezza del re, struttura pedonale, attivita' dei pezzi, spazio, case deboli, formulare un piano)
-- [ ] Principi: contenuti teorici per tema (spiegazione onesta = teoria consolidata, niente invenzioni; esempi e diagrammi)
-- [ ] Principi: mini-diagrammi/posizioni illustrative per ogni principio (scacchiera statica)
-- [ ] Principi: collegamento con le Carenze (consiglia i temi dai tuoi errori posizionali 'non_tattico')
-- [ ] Principi: quiz di comprensione per tema (verifica la teoria posizionale, non la tattica)
-- [ ] Principi: approfondire OGNI principio come mini-lezione (definizione, come riconoscerlo, come sfruttarlo o difendersi, esempi con diagrammi, errore comune da evitare)
-- [ ] Principi: ampliare il numero di principi/card per un'ampia gamma di studio (piu' temi e piu' voci per tema)
+- [x] Principi: sezione dedicata nel sito (nav + struttura a temi consultabile)
+- [x] Principi: struttura dei temi (centro, sviluppo, sicurezza del re, struttura pedonale, attivita' dei pezzi, spazio, case deboli, formulare un piano)
+- [x] Principi: contenuti teorici per tema (spiegazione onesta = teoria consolidata, niente invenzioni; esempi e diagrammi)
+- [x] Principi: mini-diagrammi/posizioni illustrative per ogni principio (scacchiera statica)
+- [x] Principi: collegamento con le Carenze (consiglia i temi dai tuoi errori posizionali 'non_tattico')
+- [x] Principi: quiz di comprensione per tema (verifica la teoria posizionale, non la tattica)
+- [x] Principi: approfondire OGNI principio come mini-lezione (definizione, come riconoscerlo, come sfruttarlo o difendersi, esempi con diagrammi, errore comune da evitare)
+- [x] Principi: ampliare il numero di principi/card per un'ampia gamma di studio (piu' temi e piu' voci per tema)
 - [ ] Principi v2: coach che spiega il principio applicato alla posizione (LLM locale, vincolato ai dati)
+> Fatto: 12 temi (aggiunti Attacco al re, Motivi tattici, Cambi e semplificazione; Finali ampliati),
+> con esempi giocabili + quiz; tutte le posizioni verificate con python-chess. Contenuto statico in
+> `frontend/src/data/principi.js`. Resta solo il coach LLM per-posizione (v2).
+
+## Estrazione dati Chess.com (pagina "I miei dati" - frontend pronto, manca il backend)
+- [ ] Chess.com: backend che scarica le partite pubbliche via API ufficiale (per nome utente) e le prepara all'analisi
+- [ ] Chess.com: collegare la pagina "I miei dati" al backend (avvio import + stato avanzamento + esito)
+- [ ] Chess.com: pipeline di analisi automatica delle partite importate (Stockfish -> profilo carenze)
+
+## Impostazioni (sezioni fondamentali del sito)
+- [ ] Impostazioni: rendere funzionali Abbonamenti e Account quando ci sara' il backend utenti (Fase 5)
+> Fatto in questa fase: 9 sezioni (Profilo, Scacchiera e pezzi, Preferenze allenamento, Accessibilita,
+> Dati e privacy, Sistema e connessione, Info e note legali; Abbonamenti/Account = segnaposto onesti).
 
 ## Fase 5 - multi-utente (grande, futura)
 - [ ] Fase 5: sistema di account e login sicuro

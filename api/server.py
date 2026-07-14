@@ -186,6 +186,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Router Sparring (/sparring): bot a livelli + analisi posizionale realtime.
+from sparring import router as sparring_router  # noqa: E402
+app.include_router(sparring_router)
+
 
 # --- Struttura dello stato: un dizionario per flusso ---------------------
 # Campi di un flusso che vengono PERSISTITI su file (tutto il resto e' transitorio

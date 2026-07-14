@@ -4,10 +4,10 @@ import { Chess } from 'chess.js';
 import { Chessground } from 'chessground';
 import { BACKEND } from '../config.js';
 import { suonaMossa, suonaCattura, suonaSuccesso, suonaErrore } from '../suoni.js';
+import { useImpostazioni, durataAnim } from '../ImpostazioniContext.jsx';
 import TrainingDisclaimer from '../components/TrainingDisclaimer.jsx';
 import './Allenamento.css';
 
-const MAX_TENTATIVI = 3;
 const RITARDO_AVANZAMENTO = 800;
 const FLUSSI_INFO = {
   piano: { etichetta: '📋 Piano (debolezze)', breve: 'Piano' },
@@ -41,6 +41,7 @@ export default function Allenamento() {
   const [vista, setVista] = useState('menu');     // 'menu' | 'piano' | 'temi' | 'errori'
   const [catAperta, setCatAperta] = useState(null); // categoria temi aperta (Tattiche/Matti/Finali)
   const [searchParams] = useSearchParams();       // ?tema= dai pulsanti "allena" delle Carenze
+  const { imp } = useImpostazioni();               // preferenze allenamento (velocità, mosse possibili, tentativi)
 
   // ---- helper sulla scacchiera (usano i ref, quindi stabili tutta la sessione) ----
   const mosseLegali = () => {
@@ -66,7 +67,7 @@ export default function Allenamento() {
     cg.current.set({
       fen: chess.current.fen(), turnColor: colore, check: coloreInScacco(),
       lastMove: S.current.ultimaMossa,
-      movable: { color: colore, dests: mosseLegali(), free: false },
+      movable: { color: colore, dests: mosseLegali(), free: false, showDests: imp.mostraMossePossibili },
     });
   };
 
@@ -136,9 +137,9 @@ export default function Allenamento() {
         cg.current = Chessground(boardEl.current, {
           fen: chess.current.fen(), orientation: orient, turnColor: orient,
           check: coloreInScacco(), lastMove: S.current.ultimaMossa,
-          animation: { enabled: true, duration: 250 },
+          animation: { enabled: durataAnim(imp.velocitaAnimazioni) > 0, duration: durataAnim(imp.velocitaAnimazioni) },
           highlight: { lastMove: true, check: true },
-          movable: { color: orient, dests: mosseLegali(), free: false },
+          movable: { color: orient, dests: mosseLegali(), free: false, showDests: imp.mostraMossePossibili },
           drawable: { enabled: true, brushes: {} },
           events: { move: (o, d) => onMoveRef.current(o, d) },
         });
@@ -185,7 +186,7 @@ export default function Allenamento() {
       suonaErrore();
       S.current.tentativi += 1;
       S.current.ultimaSbagliata = [orig, dest];
-      if (S.current.tentativi >= MAX_TENTATIVI) {
+      if (S.current.tentativi >= imp.maxTentativi) {
         const sol = S.current.soluzione[0];
         const san = uciToSan(sol);
         aggiornaBoard();
@@ -205,7 +206,7 @@ export default function Allenamento() {
         }
         if (!S.current.esitoInviato) { inviaEsito('fallito'); S.current.esitoInviato = true; }
       } else {
-        setInfo(`<span class="ko">❌ Non è giusta. Riprova (tentativo ${S.current.tentativi}/${MAX_TENTATIVI}).</span>`);
+        setInfo(`<span class="ko">❌ Non è giusta. Riprova (tentativo ${S.current.tentativi}/${imp.maxTentativi}).</span>`);
         aggiornaBoard();
       }
     }

@@ -58,6 +58,36 @@
 
 .imp-prova-suoni { margin-top: var(--sp-2); }
 
+/* Dati e privacy */
+.imp-azioni { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.imp-pericolo { border-color: var(--err); color: var(--err); }
+.imp-pericolo:hover { background: var(--err-soft); border-color: var(--err); }
+.imp-esito { color: var(--ok); font-weight: 600; margin: var(--sp-2) 0 0; }
+
+/* Sistema e connessione */
+.stato-conn-riga { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.stato-conn { font-weight: 600; }
+.stato-conn-ok { color: var(--ok); }
+.stato-conn-ko { color: var(--err); }
+.stato-conn-prova { color: var(--text-muted); }
+.imp-mini-btn { min-height: 32px; padding: 0 12px; font-size: 0.85rem; }
+.imp-diag { margin-top: var(--sp-5); }
+.imp-diag h3, .imp-contenuto h3 { margin: 0 0 var(--sp-3); font-size: 1rem; }
+.imp-diag-tab, .imp-lic { width: 100%; border-collapse: collapse; margin-bottom: var(--sp-3); }
+.imp-diag-tab th, .imp-diag-tab td, .imp-lic th, .imp-lic td {
+  text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top;
+}
+.imp-diag-tab th { color: var(--text-muted); font-weight: 550; white-space: nowrap; width: 42%; }
+.imp-lic th { color: var(--text-muted); font-weight: 550; }
+.imp-diag-tab code, .imp-campo code { font-family: var(--font-mono); font-size: 0.85em; color: var(--accent); }
+.imp-ua { font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted); word-break: break-word; }
+
+/* Info e note legali / Account */
+.imp-elenco { margin: 0 0 var(--sp-3); padding-left: 1.2em; color: var(--text-muted); }
+.imp-elenco li { margin-bottom: 4px; }
+.imp-inline-link { background: none; border: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.imp-inline-link:hover { color: var(--accent-strong); }
+
 /* Interruttore */
 .imp-switch-riga { display: flex; align-items: center; gap: 12px; margin: var(--sp-3) 0; cursor: default; }
 .imp-switch { width: 46px; height: 26px; border-radius: 999px; background: var(--surface-3); position: relative; cursor: pointer; transition: background 0.2s ease; flex-shrink: 0; box-shadow: inset 0 0 0 1px var(--border-strong); }

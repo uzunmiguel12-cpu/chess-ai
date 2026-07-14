@@ -10,6 +10,7 @@ const VOCI = [
   { to: '/dati', label: 'I miei dati' },
   { to: '/allenamento', label: 'Allenamento' },
   { to: '/aperture', label: 'Aperture' },
+  { to: '/sparring', label: 'Sparring' },
   { to: '/principi', label: 'Principi' },
   { to: '/progressi', label: 'Progressi' },
   { to: '/carenze', label: 'Le mie carenze' },

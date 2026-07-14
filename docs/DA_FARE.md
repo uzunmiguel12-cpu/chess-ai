@@ -1,5 +1,20 @@
 # chess-ai — Cose da fare e da implementare
 
+> **PER LA PROSSIMA SESSIONE (Cowork) — leggere prima.**
+> Ruoli: **Miguel** è l'ARCHITETTO/decisore; **Claude** è l'ESECUTORE tecnico.
+> Regole operative: rispondere in **italiano**; ambiente **Windows 11 / cmd.exe** (NON PowerShell);
+> passi piccoli e verificabili; **diagnosi prima della soluzione** ("guarda, non assumere");
+> riusare il codice esistente; le decisioni di **onestà statistica NON si prendono da soli** — fermarsi
+> e chiedere a Miguel; **committare solo quando esplicitamente richiesto**; gli script di misura sono
+> READ-ONLY e **`data/` è sacra (gitignorata)**; principio guida **"sostanza non apparenza"**
+> (marcare [STIMA] vs [DATO]).
+> Nota ambiente: il sandbox Cowork può servire versioni **TRONCATE** dei file appena editati alle
+> letture da bash (quindi esbuild/pytest/git via bash sono inaffidabili sui file grandi appena
+> modificati) — verificare via tool Read + python-chess + esbuild su copie in /tmp; **non committare da
+> bash quando il mount è troncato** (committare dal terminale reale).
+> Stato attuale e prossimi passi: vedi "Dove siamo arrivati" (sotto) e le priorità. Visione completa
+> in `docs/VISIONE_ESTESA.md`; cosa manca ancora, in forma sincronizzabile, in `docs/BACKLOG.md`.
+
 > Stato del progetto: **Fase 4 + tutti e sei i pezzi del coach + gruppo R completo + C1 + T3 + fix
 > classificazione + T2 avviato-e-fermato.** Sistema personale completo, coerente e onesto.
 > Questo documento elenca ciò che manca ancora, diviso per priorità.
@@ -34,6 +49,102 @@ Il sistema **personale** è completo e funzionante end-to-end:
   veri, validati con Stockfish (gap ≥200, prof. 18), in sequenze forzate multi-mossa, con
   rinforzo Lichess marcato a esaurimento. 1027 puzzle in `data/coda_errori_estesa.json`.
   Vedi 5d più sotto.
+
+### Aggiornamento — sito React + moduli Aperture / Principi / Impostazioni (luglio 2026)
+
+Il frontend è stato **rifatto in React (Vite)** come sito multi-pagina con design system
+(`frontend/src/styles/theme.css`, token CSS). Pagine: Home, Allenamento, Aperture, Principi,
+Carenze, Progressi, I miei dati, Impostazioni. Nav in alto con avatar + nome utente. Le
+preferenze sono in `frontend/src/ImpostazioniContext.jsx` (React Context + localStorage).
+
+- **Aperture** (`/aperture`): galleria "Tutte le aperture" (card con mini-scacchiera) +
+  "Aperture guidate" (calibrazione a 7 fasce Elo). Lo studio di un'apertura parte SEMPRE dalla
+  mossa 1 (fase guidata) e poi esplora le varianti ECO; toggle Linee/Puzzle, menu "Vedi le linee",
+  box Coach in alto a destra. Puzzle d'apertura = solo linea principale, verifica lato server.
+  Rosa curata di ~31 aperture + copertura ECO. File: `frontend/src/components/StudioApertura.jsx`,
+  `rag/aperture.py`, `rag/consiglio_aperture.py`, endpoint in `api/server.py`.
+- **Coach aperture**: pipeline precompute-once → cache. `rag/genera_coach.py` (Ollama, modello
+  `qwen3:8b`, in locale) genera i testi in `rag/coach_aperture.json` (~8439 nodi, gitignorato);
+  a runtime solo lookup (`rag/coach.py`, endpoint `/aperture/coach`). NB: 16GB RAM sono al limite
+  per qwen3:8b — se cade per memoria, valutare `qwen3:4b`. Lo script ha retry + salvataggio a ogni nodo.
+- **Principi** (`/principi`): studio posizionale statico in `frontend/src/data/principi.js` (tutte
+  le posizioni verificate con python-chess). **12 temi**: centro, sviluppo, sicurezza del re,
+  struttura di pedoni, attività dei pezzi, spazio, case deboli, formulare un piano, Attacco al re,
+  Motivi tattici, Cambi e semplificazione, Finali. Ogni principio: descrizione,
+  riconoscere/sfruttare/difendersi, esempi giocabili (avanti/indietro + commenti del coach) e quiz
+  interattivo (teoria + puzzle, uno alla volta). Collegato dalle Carenze (MAPPA_FASE → temi).
+- **Carenze**: sezione "Principi da ripassare" (dai tuoi errori posizionali non-tattici) + card
+  "Evoluzione nel tempo" con 2 grafici (tassi d'errore per fase e per tipo, periodo-per-periodo,
+  dall'endpoint `/storico-profili`; onesti: punti da poche partite marcati piccoli, stato vuoto se
+  storico insufficiente).
+- **Impostazioni** (9 sezioni): Profilo (nome + avatar), Scacchiera e pezzi (6 temi colore + 3 set di
+  pezzi SVG originali), Preferenze allenamento (velocità animazioni, mosse possibili, tentativi —
+  CABLATE nella scacchiera di Allenamento), Accessibilità (dimensione testo, contrasto, riduci
+  animazioni, suoni reali via Web Audio in `frontend/src/suoni.js`), Dati e privacy
+  (esporta/importa/azzera/cancella impostazioni), Sistema e connessione (URL backend configurabile,
+  ping + latenza, diagnostica), Abbonamenti e Account (segnaposto onesti Fase 5), Info e note legali
+  (licenze open-source: chessground e Stockfish **GPL-3.0**). Versione app in `frontend/src/config.js`
+  (`APP_VERSION = 0.5.0`).
+- **Estetica**: bottoni/tab/toggle uniformati e centrati, hover morbidi, focus accessibile.
+- **Git**: checkpoint `eb71cf1` (54 file, +7447 righe). Corretto il `.gitignore`: la regola `data/`
+  (non ancorata) ignorava per errore **`frontend/src/data/`** (cioè `principi.js`); ora `/data/`
+  (solo la radice, che resta sacra); ignorati `.claude/`, la cache `rag/coach_aperture.json` e il
+  binario `engine/bin/` (Stockfish, ~109MB).
+
+**Prossimi passi naturali**: estrazione dati Chess.com (backend reale dietro la pagina "I miei dati");
+Fase 5 multi-utente (account, DB, hosting); rifinitura funzionale di Abbonamenti/Account quando ci sarà
+il backend utenti.
+
+### Aggiornamento — sezione SPARRING + modello posizionale (luglio 2026) ✅ FATTO
+
+Nuova sezione `/sparring` (nav: tra Aperture e Principi): partita contro bot a livelli
+(Skill Level Stockfish) con coach posizionale realtime dopo ogni mossa dell'utente
+(teoria/ok/tattico/posizionale + feature peggiorate [DATO] + rischio ML [STIMA]).
+Componenti: `ml/caratteristiche_posizionali.py`, `ml/dataset_posizionale.py`,
+`ml/allena_posizionale.py`, `api/sparring.py`, `frontend/src/pages/Sparring.jsx`.
+Modello allenato su 101.173 mosse non tattiche da `data/analisi` (split per partita):
+MAE 45.4 vs baseline 47.7, AUC rischio 0.667 [DATO] — segnale debole ma reale,
+coerente con l'esito T3. Dettagli, avvio e retraining: `docs/SPARRING.md`.
+NON committato: da fare dal terminale reale (regola del mount troncato).
+
+## PRIORITÀ ALTA — Roadmap modello posizionale (decisa da Miguel, luglio 2026)
+
+Ordine vincolante: **prima le feature, poi il volume, poi la rete**. Razionale: con le
+20 feature attuali l'AUC 0.667 e' limitato dall'input, non dalla capacita' del modello —
+un modello piu' grosso sulle stesse feature non migliora nulla [DATO, misurato].
+
+### S1. Arricchire le feature posizionali (guadagno immediato e spiegabile)
+- Candidate: case deboli / buchi nella struttura, pedoni sospesi (hanging pawns),
+  blocco dei pedoni passati, coordinazione dei pezzi, pezzo cattivo intrappolato,
+  controllo di colonne/diagonali specifiche, re attivo nel finale.
+- Ogni feature nuova va aggiunta in `ml/caratteristiche_posizionali.py` (con
+  descrizione in `DESCRIZIONI` per il pannello) → rigenerare dataset e modello:
+  `python dataset_posizionale.py --reset` poi `python allena_posizionale.py`.
+- Misura di accettazione [DATO]: AUC/MAE devono migliorare sul test split per
+  partita; altrimenti la feature si butta (onesta' statistica).
+
+### S2. Dataset Lichess per volume (milioni di mosse, zero ore di engine)
+- database.lichess.org pubblica i PGN mensili; una parte delle partite ha gia'
+  le valutazioni engine incorporate (`[%eval ...]` nei commenti PGN).
+- Da scrivere: `ml/dataset_lichess.py` che scarica/legge un dump mensile,
+  filtra le partite CON eval, ricava cp_loss mossa per mossa dagli eval
+  consecutivi, applica gli stessi filtri del dataset attuale (salta apertura,
+  sanita' ±700cp, filtro tattico su best/confutazione) e accoda al CSV.
+- Non servono partite di Miguel: la fisica posizionale e' universale. Utile
+  filtrare per fascia Elo simile alla sua per coerenza col coaching.
+- Attenzione: dump mensili molto grandi (GB, formato .zst gia' gestito nel
+  progetto con zstandard per i puzzle) — lavorare in streaming, mai in RAM.
+
+### S3. Rete neurale con spiegazioni deterministiche (solo dopo S1+S2)
+- Input: scacchiera grezza come tensore 8x8x12 (un piano per pezzo/colore),
+  NON le feature riassunte. Architettura tipo ResNet/CNN (5-20M parametri),
+  PyTorch; target: probabilita' di errore / cp_loss della mossa.
+- Requisiti: milioni di posizioni da S2 + GPU (training di ore).
+- PRINCIPIO NON NEGOZIABILE (deciso da Miguel): la rete serve alla RILEVAZIONE
+  precisa dell'errore; le SPIEGAZIONI nel pannello Sparring restano
+  deterministiche (feature peggiorate = [DATO]). Niente scatola nera che spiega.
+- Rischio da tenere a mente: una rete che predice l'eval sta reimparando
+  Stockfish; il valore del progetto resta nella spiegazione, non nella stima.
 
 ---
 
