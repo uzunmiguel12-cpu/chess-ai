@@ -1,12 +1,16 @@
 """
 Caratteristiche POSIZIONALI di una posizione (Fase 3 — modello posizionale Sparring).
 
-Estrae ~20 feature numeriche da una chess.Board: chiusura, struttura pedonale,
+Estrae 26 feature numeriche da una chess.Board: chiusura, struttura pedonale,
 qualita' dei pezzi, sicurezza del re, attivita'. Le feature "diff" sono espresse
 come (Bianco - Nero): positive = meglio per il Bianco.
 
 Modulo di SOLA LETTURA della posizione: nessun engine, nessun file, nessuno stato.
 Usato da: ml/dataset_posizionale.py (training) e api/sparring.py (realtime).
+
+Storia S1 (luglio 2026, decisione di Miguel): aggiunte case_deboli, sospesi,
+intrappolati, attivita_re (segnale misurato [DATO]); provate e BUTTATE
+grandi_diagonali e passati_bloccati (importanza negativa sul test).
 
 Uso rapido:
     import chess
@@ -263,6 +267,71 @@ def fase_partita(board):
     return round(min(1.0, non_pedoni / 62.0), 3)
 
 
+# ---------------------------------------------------------------- S1: feature aggiunte
+# (case deboli, pedoni sospesi, pezzi intrappolati, re attivo nel finale)
+
+def case_deboli(board, colore):
+    """Buchi nel proprio campo: case centrali (colonne c-f) nelle traverse 3-5
+    (per il Bianco) che NESSUN proprio pedone potra' mai difendere."""
+    pedoni = [(chess.square_file(s), chess.square_rank(s))
+              for s in board.pieces(chess.PAWN, colore)]
+    n = 0
+    traverse = range(2, 5) if colore == chess.WHITE else range(3, 6)
+    for c in range(2, 6):
+        for t in traverse:
+            if colore == chess.WHITE:
+                difendibile = any(pc in (c - 1, c + 1) and pt < t for pc, pt in pedoni)
+            else:
+                difendibile = any(pc in (c - 1, c + 1) and pt > t for pc, pt in pedoni)
+            if not difendibile:
+                n += 1
+    return n
+
+
+def pedoni_sospesi(board, colore):
+    """Duo di pedoni adiacenti sulla stessa traversa, isolato dal resto
+    (niente pedoni propri sulle colonne esterne alla coppia)."""
+    colonne = {}
+    for s in board.pieces(chess.PAWN, colore):
+        colonne.setdefault(chess.square_file(s), []).append(chess.square_rank(s))
+    n = 0
+    for c in range(7):
+        if c in colonne and (c + 1) in colonne and (c - 1) not in colonne and (c + 2) not in colonne:
+            if set(colonne[c]) & set(colonne[c + 1]):   # stessa traversa
+                n += 1
+    return n
+
+
+def _case_attaccate_da_pedoni(board, colore):
+    case = chess.SquareSet()
+    for s in board.pieces(chess.PAWN, colore):
+        case |= board.attacks(s)   # per i pedoni: solo le case di cattura
+    return case
+
+
+def pezzi_intrappolati(board, colore):
+    """Pezzi (C, A, T) con al massimo 1 casa sicura: non occupata da un proprio
+    pezzo e non controllata da un pedone nemico."""
+    propri = chess.SquareSet(board.occupied_co[colore])
+    pericolose = _case_attaccate_da_pedoni(board, not colore)
+    n = 0
+    for pt in (chess.KNIGHT, chess.BISHOP, chess.ROOK):
+        for sq in board.pieces(pt, colore):
+            sicure = board.attacks(sq) - propri - pericolose
+            if len(sicure) <= 1:
+                n += 1
+    return n
+
+
+def distanza_re_dal_centro(board, colore):
+    """Distanza Chebyshev del re dal quadrato centrale (0 = in mezzo, 3 = angolo)."""
+    re = board.king(colore)
+    if re is None:
+        return 3
+    c, t = chess.square_file(re), chess.square_rank(re)
+    return max(abs(c - 3.5), abs(t - 3.5)) - 0.5
+
+
 # ---------------------------------------------------------------- API principale
 
 def estrai_caratteristiche(board: chess.Board) -> dict:
@@ -304,6 +373,14 @@ def estrai_caratteristiche(board: chess.Board) -> dict:
         "spazio_diff":   spazio(board, W) - spazio(board, B),
         "centro_diff":   controllo_centro(board, W) - controllo_centro(board, B),
         "sviluppo_diff": sviluppo(board, W) - sviluppo(board, B),
+
+        # --- S1: feature aggiunte (verificate con misura, vedi docstring)
+        "case_deboli_diff":  case_deboli(board, B) - case_deboli(board, W),
+        "sospesi_diff":      pedoni_sospesi(board, B) - pedoni_sospesi(board, W),
+        "intrappolati_diff": pezzi_intrappolati(board, B) - pezzi_intrappolati(board, W),
+        "attivita_re":       round((distanza_re_dal_centro(board, B)
+                              - distanza_re_dal_centro(board, W))
+                              * (1.0 - fase_partita(board)), 3),
     }
 
 
@@ -329,6 +406,10 @@ DESCRIZIONI = {
     "spazio_diff": "spazio",
     "centro_diff": "controllo del centro",
     "sviluppo_diff": "sviluppo",
+    "case_deboli_diff": "case deboli nel proprio campo",
+    "sospesi_diff": "pedoni sospesi",
+    "intrappolati_diff": "pezzi con poche case (intrappolati)",
+    "attivita_re": "attivita' del re (nel finale)",
 }
 
 if __name__ == "__main__":

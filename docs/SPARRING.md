@@ -19,15 +19,36 @@ su `data/analisi/`.
 
 ## Numeri onesti [DATO] (dataset: 101.173 mosse non tattiche, 3.337 partite, split per partita)
 
-- Regressore cp_loss: MAE 45.4 vs baseline 47.7 → il posizionale resta poco
+- Regressore cp_loss: MAE 45.34 vs baseline 47.73 → il posizionale resta poco
   predicibile dalle sole feature, coerente con l'esito T3 di `ml/analizza_posizionale.py`.
-- Classificatore rischio (errore ≥100cp): AUC 0.667; il decile più a rischio
+- Classificatore rischio (errore ≥100cp): AUC 0.669; il decile più a rischio
   sbaglia il doppio della media (35% vs 18%).
+- **Esito S1** (26 feature, decisione di Miguel): aggiunte e tenute case_deboli,
+  sospesi, intrappolati, attivita_re (segnale positivo misurato); provate e
+  BUTTATE grandi_diagonali e passati_bloccati (importanza negativa sul test).
+  Guadagno complessivo minimo (AUC 0.667→0.669): il tetto e' il rumore del
+  target (cp_loss delle mosse tranquille), non la capacita' del modello →
+  prossima leva: volume (S2, dataset Lichess).
+- **Esito S2** (volume Lichess, run di Miguel sul dump 2026-06): +1.56M righe
+  da 30k partite con [%eval] → training combinato su 1.15M mosse non tattiche:
+  **AUC 0.669→0.6979, MAE 41.66 vs baseline 44.54** [DATO]. Accettata: il
+  volume media il rumore e il segnale emerge. Modello in produzione aggiornato.
 
 **Conseguenza di design**: nel pannello la diagnosi primaria è deterministica
 (cp_loss engine + feature peggiorate = [DATO]); il modello ML compare solo come
 "rischio stimato … [stima]". Se in futuro il segnale non basta, il pannello
 funziona anche senza modello (il backend lo carica in modo opzionale).
+
+**Esito S3 — RETE NEURALE PROMOSSA** (luglio 2026): ResNet su tensori 24×8×8
+(prospettiva-di-chi-muove + eval scalare, `ml/rete/`). Prima la 128×10 (3M) ha
+battuto il GBM (0.7095 vs 0.6996 a parità di split, `confronta_gbm_rete.py`);
+poi il round 2 (2 mesi di dump, 16 epoche) ha promosso la **192×12 (8M
+parametri): AUC 0.7324 vs 0.7082 su test neutrale** (mese di dump mai visto da
+nessuna delle due — regola anti-contaminazione in `valuta_rete.py`). In
+`api/sparring.py` la catena di caricamento è: rete (`data/rete_posizionale.pt`,
+richiede torch, documentato in requirements) → fallback GBM
+(`modello_posizionale.joblib`) → nessun rischio. Il campo `modello_rischio`
+della risposta dichiara quale modello sta stimando.
 
 ## Classificazione della mossa (in `api/sparring.py`)
 

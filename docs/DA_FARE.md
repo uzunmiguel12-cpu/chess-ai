@@ -113,38 +113,131 @@ Ordine vincolante: **prima le feature, poi il volume, poi la rete**. Razionale: 
 20 feature attuali l'AUC 0.667 e' limitato dall'input, non dalla capacita' del modello —
 un modello piu' grosso sulle stesse feature non migliora nulla [DATO, misurato].
 
-### S1. Arricchire le feature posizionali (guadagno immediato e spiegabile)
-- Candidate: case deboli / buchi nella struttura, pedoni sospesi (hanging pawns),
-  blocco dei pedoni passati, coordinazione dei pezzi, pezzo cattivo intrappolato,
-  controllo di colonne/diagonali specifiche, re attivo nel finale.
-- Ogni feature nuova va aggiunta in `ml/caratteristiche_posizionali.py` (con
-  descrizione in `DESCRIZIONI` per il pannello) → rigenerare dataset e modello:
-  `python dataset_posizionale.py --reset` poi `python allena_posizionale.py`.
-- Misura di accettazione [DATO]: AUC/MAE devono migliorare sul test split per
-  partita; altrimenti la feature si butta (onesta' statistica).
+### S1. Arricchire le feature posizionali ✅ FATTO (luglio 2026)
+- Provate 6 feature; misura di accettazione applicata (permutation importance
+  sul test split per partita). TENUTE (decisione di Miguel): case_deboli,
+  attivita_re, intrappolati, sospesi. BUTTATE: grandi_diagonali e
+  passati_bloccati (importanza negativa = rumore).
+- Esito [DATO]: MAE 45.4→45.34, AUC 0.667→0.669 con 26 feature. Guadagno
+  minimo: il tetto e' il RUMORE DEL TARGET (cp_loss delle mosse tranquille a
+  prof. 15), non l'input ne' la capacita' del modello. Conferma che la
+  prossima leva e' S2 (volume).
+- Artefatti aggiornati: `ml/caratteristiche_posizionali.py` (26 feature),
+  `data/dataset_posizionale.csv` (59 colonne), `data/modello_posizionale.joblib`.
+  Coerenza modulo↔modello verificata. NON committato (mount troncato: commit
+  dal terminale reale).
+- Nota operativa sandbox: scrivere il CSV in append sul mount PERDE righe —
+  generare su /tmp e copiare con un singolo `cp` alla fine.
 
-### S2. Dataset Lichess per volume (milioni di mosse, zero ore di engine)
-- database.lichess.org pubblica i PGN mensili; una parte delle partite ha gia'
-  le valutazioni engine incorporate (`[%eval ...]` nei commenti PGN).
-- Da scrivere: `ml/dataset_lichess.py` che scarica/legge un dump mensile,
-  filtra le partite CON eval, ricava cp_loss mossa per mossa dagli eval
-  consecutivi, applica gli stessi filtri del dataset attuale (salta apertura,
-  sanita' ±700cp, filtro tattico su best/confutazione) e accoda al CSV.
-- Non servono partite di Miguel: la fisica posizionale e' universale. Utile
-  filtrare per fascia Elo simile alla sua per coerenza col coaching.
-- Attenzione: dump mensili molto grandi (GB, formato .zst gia' gestito nel
-  progetto con zstandard per i puzzle) — lavorare in streaming, mai in RAM.
+### S2. Dataset Lichess per volume ✅ FATTO (luglio 2026) — ACCETTATA
 
-### S3. Rete neurale con spiegazioni deterministiche (solo dopo S1+S2)
-- Input: scacchiera grezza come tensore 8x8x12 (un piano per pezzo/colore),
-  NON le feature riassunte. Architettura tipo ResNet/CNN (5-20M parametri),
-  PyTorch; target: probabilita' di errore / cp_loss della mossa.
-- Requisiti: milioni di posizioni da S2 + GPU (training di ore).
-- PRINCIPIO NON NEGOZIABILE (deciso da Miguel): la rete serve alla RILEVAZIONE
-  precisa dell'errore; le SPIEGAZIONI nel pannello Sparring restano
-  deterministiche (feature peggiorate = [DATO]). Niente scatola nera che spiega.
-- Rischio da tenere a mente: una rete che predice l'eval sta reimparando
-  Stockfish; il valore del progetto resta nella spiegazione, non nella stima.
+- `ml/dataset_lichess.py`: legge un dump mensile (.pgn.zst locale o --url in
+  streaming senza salvarlo), tiene solo partite standard con [%eval], no bullet
+  (base <180s), Elo in fascia (default 1400-2200); cp_loss dagli eval consecutivi
+  (POV di chi muove); stessi filtri e STESSE COLONNE del dataset personale.
+- DIVERGENZA DICHIARATA [STIMA]: nel dump manca la best move → "tattica" =
+  cp_loss>=300 O mossa cattura/scacco/promozione (criterio piu' largo, documentato
+  nel docstring). Test verdi in `ml/test_dataset_lichess.py`.
+- Run di volume eseguito da Miguel sul PC (dump 2026-06): 30.000 partite utili
+  su 681.191 lette → 1.562.239 righe in `data/dataset_lichess.csv`.
+- Training combinato (1.150.774 mosse non tattiche, 33.275 partite, split per
+  partita): **AUC 0.669 → 0.6979, MAE 41.66 vs baseline 44.54** [DATO].
+  Criterio di accettazione (AUC > 0.669) SUPERATO: il volume media il rumore
+  del target e il segnale posizionale emerge. Modello in produzione aggiornato
+  (`data/modello_posizionale.joblib`, caricato da api/sparring.py all'avvio).
+- Per estendere: altri mesi del dump con `--append` (e `--salta-partite` per
+  riprendere un mese interrotto), poi riallenare.
+- NOTA distribuzione: il modello ora e' allenato ~93% su partite Lichess
+  1400-2200 e ~7% su partite di Miguel — coerente con l'uso (coaching nella
+  stessa fascia), ma da ricordare quando si leggono le probabilita' [STIMA].
+
+**Curva di scaling misurata** (`ml/curva_scaling.py`, test fisso da 6.655
+partite, run di Miguel, luglio 2026) [DATO]:
+
+| frazione train | partite | AUC | MAE |
+|---|---|---|---|
+| 10% | 2.662 | 0.6774 | 42.14 |
+| 25% | 6.655 | 0.6876 | 41.87 |
+| 50% | 13.310 | 0.6938 | 41.78 |
+| 100% | 26.620 | 0.6979 | 41.66 |
+
+Lettura: crescita ancora presente ma logaritmica (~+0.004-0.005 per raddoppio).
+Proiezione onesta [STIMA]: con 2-3 mesi di dump in piu' si arriva verso
+~0.70-0.71, poi plateau di questo approccio (feature fatte a mano + GBM).
+Conclusione: altri mesi di dump sono un guadagno facile ma limitato; il salto
+di qualita' successivo richiede S3.
+
+### S3. Rete neurale con spiegazioni deterministiche — SCHELETRO PRONTO, training DA FARE
+
+Decisione (dopo la curva di scaling): doppio binario — Miguel aggiunge 2-3 mesi
+di dump al GBM (guadagno facile fino a ~0.70-0.71 [STIMA]), in parallelo si
+prepara la rete. Scheletro scritto e validato in sandbox (luglio 2026):
+
+- `ml/rete/estrai_posizioni.py`: CSV (partita, fen, mossa, cp_loss, tattica,
+  eval_prima) da data/analisi E/O dal dump Lichess — la rete ha bisogno delle
+  FEN, non delle feature. Stessi filtri dei dataset a feature. TESTATO.
+- `ml/rete/tensori.py` (solo numpy, testato): 24 piani 8x8 (posizione prima +
+  dopo la mossa), PROSPETTIVA DI CHI MUOVE (mirror per il Nero — proprieta' di
+  simmetria verificata su casi reali), eval_prima scalare normalizzato.
+- `ml/rete/modello.py` (PyTorch): ResNet configurabile — 64x6 ≈ 0.5M parametri
+  (prova CPU), 128x10 ≈ 3M (default), 192x12 ≈ 8M (GPU).
+- `ml/rete/allena_rete.py` (PyTorch): split per partita, BCE, AUC su val per
+  epoca, salva il migliore in `data/rete_posizionale.pt`.
+- Il sandbox non puo' installare torch (wheel troppo grande): i file PyTorch
+  sono verificati solo a sintassi — il primo run e' anche il loro smoke test.
+
+**ESITO (run di Miguel, GPU NVIDIA, luglio 2026) — RETE PROMOSSA** ✅:
+- Training 128x10 (3.0M parametri), 920k mosse train / 231k val (split per
+  partita): AUC val **0.7095** in 8 epoche (~5 min/epoca su GPU), curva ancora
+  in lieve crescita all'ultima epoca.
+- Confronto onesto (`ml/rete/confronta_gbm_rete.py`, GBM riallenato sulle
+  STESSE partite di train e valutato sulle STESSE partite di val):
+  GBM 0.6996 vs RETE 0.7095 = **+0.0099** [DATO] -> promozione motivata.
+- Integrata in `api/sparring.py`: 1a scelta la rete (`data/rete_posizionale.pt`,
+  richiede torch), fallback automatico al GBM (`modello_posizionale.joblib`),
+  senza entrambi il pannello funziona senza campo rischio. Il campo
+  `modello_rischio` nella risposta dichiara quale modello ha stimato il rischio.
+  Fallback testato in sandbox (senza torch -> GBM, nessun errore).
+- PRINCIPIO RISPETTATO: la rete RILEVA (probabilita' di errore), le SPIEGAZIONI
+  restano deterministiche (feature peggiorate = [DATO]).
+
+**Round 2 (deciso da Miguel): piu' dati + rete 192x12 + 16 epoche.**
+- torch DOCUMENTATO in requirements.txt come dipendenza consigliata (il
+  fallback GBM resta: senza torch il backend funziona).
+- `ml/rete/valuta_rete.py` (nuovo): valuta piu' checkpoint sullo STESSO val set
+  ricostruito dai CSV attuali — necessario perche' aggiungendo un mese di dump
+  lo split cambia e le AUC salvate nei .pt non sono confrontabili tra loro.
+- Procedura (sul PC):
+  1. secondo mese di posizioni (sera): `estrai_posizioni.py --url <dump 2026-05>
+     --max-partite 30000 --out ..\..\data\posizioni_lichess.csv --append`
+  2. training grande (notte, GPU): `allena_rete.py --dati <personali> <lichess>
+     --canali 192 --blocchi 12 --epoche 16 --batch 384 --workers 2
+     --out ..\..\data\rete_192.pt`  (OOM -> ridurre --batch)
+     NB: --out SEPARATO per non toccare la rete in produzione durante il run.
+  3. confronto pulito: SU UN MESE TERZO mai visto da nessuna delle due reti
+     (vedi sotto — lezione contaminazione).
+  4. se la nuova vince [DATO]: `copy /Y data\rete_192.pt data\rete_posizionale.pt`
+     e riavvio del backend. Se perde: resta la 128x10 e lo si scrive qui.
+
+**LEZIONE — contaminazione del confronto (luglio 2026)**: il primo confronto
+tra 128x10 e 192x12 era INVALIDO: ricostruendo lo split sul dataset a due mesi,
+il val set conteneva partite che erano nel TRAINING della rete vecchia → il suo
+AUC usciva gonfiato (0.7427 apparente vs 0.7095 reale del suo split originale).
+Regola da qui in poi: reti allenate su dataset diversi si confrontano SOLO su
+un mese di dump neutrale, mai usato in training, con `valuta_rete.py --tutte`:
+```cmd
+python estrai_posizioni.py --url <dump 2026-04> --max-partite 5000 --out ..\..\data\posizioni_test.csv
+python valuta_rete.py --dati ..\..\data\posizioni_test.csv --tutte --reti ..\..\data\rete_posizionale.pt ..\..\data\rete_192.pt
+```
+
+**ESITO ROUND 2 (test neutrale su dump 2026-04, 5k partite) — 192x12 PROMOSSA** ✅:
+- 128x10: AUC 0.7082 (≈ il suo 0.7095 originale: conferma che il test neutrale
+  e' sano e che il 0.7427 era contaminazione);
+- 192x12 (8M parametri, 2 mesi di dump, 16 epoche): **AUC 0.7324** = +0.024 [DATO].
+- Promossa: copiata su `data/rete_posizionale.pt` (il vecchio checkpoint resta
+  in `data/rete_192.pt` come copia). torch documentato in requirements.txt.
+- Storia completa del rischio posizionale: GBM feature 0.667 → S1 0.669 →
+  S2 volume 0.698 → rete 3M 0.7095 → rete 8M **0.7324** (test neutrale).
 
 ---
 

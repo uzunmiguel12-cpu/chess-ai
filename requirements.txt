@@ -29,3 +29,7 @@ zstandard==0.25.0
 scikit-learn
 joblib
 pandas
+# --- Rete neurale S3 (CONSIGLIATA, non obbligatoria): il backend usa
+# --- data/rete_posizionale.pt se torch e' installato, altrimenti ripiega
+# --- sul GBM. Con GPU NVIDIA installare la variante CUDA da pytorch.org.
+torch

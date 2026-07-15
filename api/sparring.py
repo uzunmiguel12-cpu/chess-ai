@@ -12,12 +12,18 @@ Architettura (stateless: lo stato della partita vive nel frontend, qui arriva la
 
 Diagnosi della mossa (stessa filosofia di ml/analizza_posizionale.py):
   - cp_loss [DATO] dal confronto engine prima/dopo (profondita' ridotta, realtime);
-  - le prime MOSSE_TEORIA mosse non vengono diagnosticate (teoria d'apertura,
-    stesso criterio del training: SALTA_APERTURA in ml/dataset_posizionale.py);
+  - le prime MOSSE_TEORIA mosse non vengono diagnosticate (teoria d'apertura),
+    MA un blunder >=300cp viene comunque segnalato;
   - TATTICA se la confutazione e' forzante (catture/scacchi nella PV, swing
     materiale) o cp_loss >= 300 -> la tattica la spiega gia' Stockfish;
   - POSIZIONALE altrimenti: si riportano le feature peggiorate (spiegazione
     deterministica [DATO]) + il rischio stimato dal modello ML [STIMA].
+
+MODELLO DI RISCHIO (S3, promosso con misura [DATO] +0.0099 AUC a parita' di split):
+  1a scelta: RETE NEURALE (data/rete_posizionale.pt, richiede torch) — AUC 0.7095;
+  fallback:  GBM (data/modello_posizionale.joblib) — AUC 0.6996;
+  senza entrambi: il pannello funziona lo stesso, senza campo rischio.
+Il PRINCIPIO resta: la rete RILEVA, le spiegazioni restano deterministiche.
 
 Il motore e' lo stesso stockfish.exe di engine/bin (override con env STOCKFISH_PATH,
 utile nei sandbox non-Windows).
@@ -36,11 +42,13 @@ from pydantic import BaseModel
 
 logger = logging.getLogger("sparring")
 
-# --- import dai moduli del progetto (ml/) -------------------------------------
+# --- import dai moduli del progetto (ml/ e ml/rete/) ---------------------------
 _QUI = os.path.dirname(os.path.abspath(__file__))
 _ML = os.path.join(_QUI, "..", "ml")
-if _ML not in sys.path:
-    sys.path.insert(0, _ML)
+_RETE = os.path.join(_ML, "rete")
+for _p in (_ML, _RETE):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from caratteristiche_posizionali import (          # noqa: E402
     estrai_caratteristiche, FEATURE_SIMMETRICHE, DESCRIZIONI, materiale,
@@ -50,7 +58,8 @@ PERCORSO_STOCKFISH = os.environ.get(
     "STOCKFISH_PATH",
     os.path.join(_QUI, "..", "engine", "bin", "stockfish.exe"),
 )
-PERCORSO_MODELLO = os.path.join(_QUI, "..", "data", "modello_posizionale.joblib")
+PERCORSO_GBM = os.path.join(_QUI, "..", "data", "modello_posizionale.joblib")
+PERCORSO_RETE = os.path.join(_QUI, "..", "data", "rete_posizionale.pt")
 
 PROFONDITA_ANALISI = 12      # realtime: basso = risposta ~1s
 SOGLIA_ERRORE_CP = 50
@@ -85,24 +94,42 @@ def _apri_motore():
     return _motore
 
 
-# --- modello ML (caricato una volta, opzionale) --------------------------------
+# --- modello di rischio: rete neurale se possibile, altrimenti GBM -------------
 _ml = None
 
 
 def _carica_ml():
+    """Ritorna {"tipo": "rete"|"gbm", ...} oppure {} se nessun modello e' caricabile."""
     global _ml
-    if _ml is None:
-        if os.path.exists(PERCORSO_MODELLO):
-            try:
-                import joblib
-                _ml = joblib.load(PERCORSO_MODELLO)
-                logger.info("Sparring: modello posizionale caricato (AUC test: %s)",
-                            _ml.get("auc_test", "?"))
-            except Exception as e:          # il pannello funziona anche senza ML
-                logger.warning("Sparring: modello ML non caricato: %s", e)
-                _ml = {}
-        else:
-            _ml = {}
+    if _ml is not None:
+        return _ml
+    # 1a scelta: rete neurale (S3)
+    if os.path.exists(PERCORSO_RETE):
+        try:
+            import torch
+            from modello import RetePosizionale
+            ckpt = torch.load(PERCORSO_RETE, map_location="cpu")
+            rete = RetePosizionale(ckpt["canali"], ckpt["blocchi"])
+            rete.load_state_dict(ckpt["stato"])
+            rete.eval()
+            _ml = {"tipo": "rete", "rete": rete, "torch": torch,
+                   "auc": ckpt.get("auc_val")}
+            logger.info("Sparring: rete neurale caricata (AUC val: %s)", _ml["auc"])
+            return _ml
+        except Exception as e:
+            logger.warning("Sparring: rete non caricata (%s), provo il GBM", e)
+    # fallback: GBM (S1/S2)
+    if os.path.exists(PERCORSO_GBM):
+        try:
+            import joblib
+            g = joblib.load(PERCORSO_GBM)
+            _ml = {"tipo": "gbm", "modello": g["modello"], "colonne": g["colonne"],
+                   "auc": g.get("auc_test")}
+            logger.info("Sparring: GBM caricato (AUC test: %s)", _ml["auc"])
+            return _ml
+        except Exception as e:
+            logger.warning("Sparring: nessun modello di rischio caricato: %s", e)
+    _ml = {}
     return _ml
 
 
@@ -138,12 +165,21 @@ def _feature_peggiorate(f_prima, f_dopo, muove_bianco, massimo=3):
     return peggiori[:massimo]
 
 
-def _rischio_ml(f_prima, f_dopo, muove_bianco, eval_prima):
-    """Probabilita' [STIMA] che la mossa sia un errore posizionale secondo il
-    modello. None se il modello non e' disponibile."""
+def _rischio_ml(fen, mossa_uci, f_prima, f_dopo, muove_bianco, eval_prima):
+    """Probabilita' [STIMA] che la mossa sia un errore posizionale.
+    Ritorna (probabilita', nome_modello) oppure (None, None)."""
     ml = _carica_ml()
     if not ml:
-        return None
+        return None, None
+    if ml["tipo"] == "rete":
+        from tensori import codifica, normalizza_eval
+        torch = ml["torch"]
+        piani = torch.from_numpy(codifica(fen, mossa_uci)).unsqueeze(0)
+        ev = torch.tensor([[normalizza_eval(eval_prima)]])
+        with torch.no_grad():
+            p = torch.sigmoid(ml["rete"](piani, ev)).item()
+        return round(float(p), 3), "rete"
+    # GBM sulle feature
     riga = {}
     segno = 1 if muove_bianco else -1
     for k in f_prima:
@@ -157,7 +193,7 @@ def _rischio_ml(f_prima, f_dopo, muove_bianco, eval_prima):
     riga["muove_bianco"] = int(muove_bianco)
     import pandas as pd
     X = pd.DataFrame([riga])[ml["colonne"]]
-    return round(float(ml["modello"].predict_proba(X)[0, 1]), 3)
+    return round(float(ml["modello"].predict_proba(X)[0, 1]), 3), "gbm"
 
 
 def _mossa_bot(board, skill):
@@ -193,8 +229,10 @@ class MossaBotRichiesta(BaseModel):
 
 @router.get("/livelli")
 def livelli():
+    ml = _carica_ml()
     return {"livelli": LIVELLI, "profondita_analisi": PROFONDITA_ANALISI,
-            "mosse_teoria": MOSSE_TEORIA}
+            "mosse_teoria": MOSSE_TEORIA,
+            "modello_rischio": ml.get("tipo"), "auc_modello": ml.get("auc")}
 
 
 @router.post("/mossa-bot")
@@ -244,7 +282,7 @@ def mossa(req: MossaRichiesta):
 
         tipo = "ok"
         spiegazioni = []
-        rischio = None
+        rischio, modello_rischio = None, None
         if in_teoria and cp_loss < SOGLIA_TATTICA_CP:
             tipo = "teoria"    # niente diagnosi sulle prime mosse (ma i blunder si')
         elif cp_loss >= SOGLIA_ERRORE_CP:
@@ -254,7 +292,8 @@ def mossa(req: MossaRichiesta):
                 tipo = "posizionale"
                 spiegazioni = _feature_peggiorate(f_prima, f_dopo, muove_bianco)
         if not in_teoria:
-            rischio = _rischio_ml(f_prima, f_dopo, muove_bianco, eval_prima)
+            rischio, modello_rischio = _rischio_ml(
+                req.fen, req.mossa_uci, f_prima, f_dopo, muove_bianco, eval_prima)
 
         stato = _stato_partita(board)
         risposta_bot = None
@@ -274,6 +313,7 @@ def mossa(req: MossaRichiesta):
         "tipo": tipo,                       # ok | teoria | tattico | posizionale
         "spiegazioni": spiegazioni,         # [DATO] feature peggiorate
         "rischio_ml": rischio,              # [STIMA] probabilita' modello (o None)
+        "modello_rischio": modello_rischio, # "rete" | "gbm" | None
         "bot": risposta_bot,
         "fen": board.fen(),
         "stato": stato,
